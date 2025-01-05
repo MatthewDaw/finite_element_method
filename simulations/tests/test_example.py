@@ -1,6 +1,6 @@
 import pytest
 
-from finite_element_method.example import hello
+from simulations.example import hello
 
 @pytest.mark.parametrize(
     ("name", "expected"),
