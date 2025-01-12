@@ -65,80 +65,34 @@ class MeshEditor:
 
         return triangle_to_edge_map
 
+    def generate_p_t_e_from_mesh(self, smoothed_mesh):
+        p = smoothed_mesh.p.T
+        t = smoothed_mesh.t.T
+        t = np.hstack((t, np.zeros((t.shape[0], 1), dtype=t.dtype)))
+        boundary_facets = smoothed_mesh.boundary_facets()
+        boundary_edges = smoothed_mesh.facets[:, boundary_facets]
+        boundary_nodes = smoothed_mesh.boundary_nodes()
+        e = np.zeros((len(boundary_nodes), 7))
+        e[:,:2] = boundary_edges.T
+        e[:, 4] = 1
+        e[:, 5] = 1
+        return p, t.astype(int), e.astype(int)
+
     def add_point(self, problem_setup: FullProblemSetup, x: float, y: float):
         """Add a point to the mesh."""
-
-        original_p_positions = problem_setup.p[problem_setup.e[:, 0]]
-
-        # self.visuzlizer.show_points_and_their_values(problem_setup.p)
         new_point = np.array([[x, y]])
         p_with_new_point = np.vstack([problem_setup.p, new_point])
         smoothed_mesh = self.remesh(p_with_new_point)
-
-        p = smoothed_mesh.p.T
-        t = smoothed_mesh.t.T
-        # note, really we should be correcting the new dimensions of t here, but they are always zero so fixing this will have to revisited
-        t = np.hstack((t, np.zeros((t.shape[0], 1))))
-        e = problem_setup.e
-        p[e[:, 0]] = original_p_positions
-
-        new_point_index = np.max(t)
-        new_boundary_nodes = smoothed_mesh.boundary_nodes()
-        if int(new_point_index) in new_boundary_nodes:
-            center_points_of_edges = (p[e[:, 0]] + p[e[:, 1]]) / 2
-
-            self.visuzlizer.show_points_and_their_values(center_points_of_edges)
-
-            distances = center_points_of_edges - p[int(new_point_index)]
-            distances = np.linalg.norm(distances, axis=1)
-            closest_edge_index = np.argmin(distances)
-            closest_edge = e[closest_edge_index]
-            e = np.delete(e, closest_edge_index, axis=0)
-            new_entries = np.array([[closest_edge[0], new_point_index] + list(closest_edge[2:]),
-            [closest_edge[1], new_point_index] + list(closest_edge[2:])])
-            e = np.vstack([e, new_entries])
-        return p, t.astype(int), e.astype(int)
-
+        return self.generate_p_t_e_from_mesh(smoothed_mesh)
 
 
     def remove_point(self, problem_setup: FullProblemSetup, x: float, y: float):
         """Remove a point from the mesh."""
-
-        # save original p positions at border so that we can move them back there once we are done with our delete
-        original_p_positions = problem_setup.p[problem_setup.e[:,0]]
-
         # find point closest to the x and y target the ML model chose
         target_point = np.array([x, y])
         distances = problem_setup.p - target_point
         normed_distances = np.linalg.norm(distances, axis=1)
-        # guarantee that a boundary point is not removed
-        normed_distances[problem_setup.e[:,0]] = np.inf
-        # chosen point is determined
         closest_row_index = np.argmin(normed_distances)
-
-        # delete chosen point from p
         p_without_closest = np.delete(problem_setup.p, closest_row_index, axis=0)
         smoothed_mesh = self.remesh(p_without_closest)
-
         return self.generate_p_t_e_from_mesh(smoothed_mesh)
-
-        # # remesh does not resort points, so we can use p and t without any changes, other than adding labels of t back in
-        # p = smoothed_mesh.p.T
-        # t = smoothed_mesh.t.T
-        # # note, really we should be correcting the new dimensions of t here, but they are always zero so fixing this will have to revisited
-        # t = np.hstack((t, np.zeros((t.shape[0], 1), dtype=t.dtype)))
-        #
-        # self.visuzlizer.show_points_and_their_values(p[np.where(normed_distances < np.inf)])
-        #
-        # assert closest_row_index not in problem_setup.e[:,0] and closest_row_index not in problem_setup.e[:,1]
-        # e = problem_setup.e
-        # e[np.where(closest_row_index < problem_setup.e[:, 0]), 0] -= 1
-        # e[np.where(closest_row_index < problem_setup.e[:, 1]), 1] -= 1
-        #
-        # self.visuzlizer.show_points_and_their_values(p[e[:, 0]])
-        #
-        # # reset boundary point positions, we do not want to move those as they might be drawn to the interior
-        # p[e[:, 0]] = original_p_positions
-        #
-        # return p, t.astype(int), e.astype(int)
-
