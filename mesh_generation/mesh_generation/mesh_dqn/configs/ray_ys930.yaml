@@ -20,7 +20,7 @@ agent_params:
         u: -1
         p: -1
         do_nothing: True
-        time_reward: 0.005
+        expected_avg_improvement: 0.005
         smoothing: True
         save_steps: 1000
         goal_vertices: 0.95

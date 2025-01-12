@@ -2,6 +2,7 @@ agent_params:
   N_closest: 180
   do_nothing: true
   episodes: 1000000
+  expected_avg_improvement: 0.005
   goal_vertices: 0.95
   gt_drag: -1
   gt_time: -1
@@ -14,7 +15,6 @@ agent_params:
   solver_steps: 5000
   target_update: 50
   threshold: 0.001
-  time_reward: 0.005
   timesteps: 10000
   u: -1
 epsilon:

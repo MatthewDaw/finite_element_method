@@ -1,4 +1,8 @@
 """This file runs the two rectangle simulation given in the book."""
+from matplotlib.patches import Polygon
+from skfem import MeshTri1
+
+from adaptmesh.solve import laplace
 from common.pydantic_models import FullProblemSetup
 from dif_eq_setup.dif_eq_setup_server import DiffEQParameterServer
 from fem_solver.solver_sdk import FEMSolver
@@ -6,7 +10,7 @@ from mesh_generation.mesh_generator_sdk import MeshSDK
 from mesh_generation.shape_generator import ShapeGenerator
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import NearestNDInterpolator
+from scipy.interpolate import LinearNDInterpolator
 import os
 
 class FEMSimulator:
@@ -38,7 +42,7 @@ class FEMSimulator:
         plt.xlabel('x-coordinate')
         plt.ylabel('y-coordinate')
         plt.title('Scatter Plot of Points Colored by u Values')
-        plt.show()
+        # plt.show()
 
     def run_book_disk_example_simulation(self, h=0.05, plot=False):
         disk_outline_parameters = self.shape_generator.book_disk_example()
@@ -88,18 +92,18 @@ class FEMSimulator:
             self._save_results(position_of_sol_points, near_exact_sol, problem_hash)
         return near_exact_sol, position_of_sol_points
 
-    def estimate_error_at_points(self, finer_p, finer_u, course_p, course_u, h):
+    def estimate_error_at_points(self, p_to_project, anchor_points_for_u, p_to_project_onto, u_to_estimate, h):
         """Estimate error at points."""
-        linear_interpolator = NearestNDInterpolator(finer_p, finer_u[:,0])
-        u_near_exact = linear_interpolator(course_p)
+        linear_interpolator = LinearNDInterpolator(p_to_project_onto, u_to_estimate[:,0])
+        u_near_exact = linear_interpolator(p_to_project)
         h2 = h * h
-        err, errorh2 = np.linalg.norm(u_near_exact - course_u[:, 0], np.inf), np.linalg.norm(
-            u_near_exact - course_u[:, 0], np.inf) / h2
+        err, errorh2 = np.linalg.norm(u_near_exact - anchor_points_for_u[:, 0]), np.linalg.norm(
+            u_near_exact - anchor_points_for_u[:, 0]) / h2
         return err, errorh2
 
     def _estimate_mesh_error(self, p, shape_outline_parameters, pde_coefficients, estimated_solution, h, *args, **kwargs):
         near_exact_sol, points_at_p = self._calculate_and_save_near_exact_solution(shape_outline_parameters, pde_coefficients, *args, **kwargs)
-        linear_interpolator = NearestNDInterpolator(points_at_p, near_exact_sol[:, 0])
+        linear_interpolator = LinearNDInterpolator(points_at_p, near_exact_sol[:, 0])
         u_near_exact = linear_interpolator(p)
         # Interpolate values at coarser mesh points
         h2 = h * h
@@ -135,9 +139,94 @@ class FEMSimulator:
         err, errorh2 = self._estimate_mesh_error(problem_setup.p, problem_setup.shape_parameters, problem_setup.pde_coefficients, problem_setup.u, problem_setup.h)
         return err, errorh2
 
+    def generate_error_drop_graph(self):
+        num_triangles = np.arange(1, 20, 2)
+        cum_errors = []
+        cum_h2error = []
+        cum_num_points = []
+        cum_average_estimator = []
+        h_steps = np.linspace(0.1, 0.008, 15)
+        for t in num_triangles:
+            shape_parameters = self.shape_generator.random_triangle_polygon(num_triangles=t)
+            ground_truth_problem_setup = self.generate_triangle_setup_from_outline_parameters(shape_parameters, 0.006, True)
+            errors = []
+            h2error = []
+            num_points = []
+            average_estimator = []
+            for h in h_steps:
+                estimate = self.generate_triangle_setup_from_outline_parameters(shape_parameters, h, True)
+
+                mesh = MeshTri1(estimate.p.T, estimate.t[:,:3].T)
+                estimator = laplace(mesh)
+                average_estimator.append(np.mean(estimator))
+
+
+                err, h2_err = self.estimate_error_at_points(estimate.p, estimate.u, ground_truth_problem_setup.p, ground_truth_problem_setup.u, h)
+                errors.append(err)
+                h2error.append(h2_err)
+                num_points.append(estimate.p.shape[0])
+            cum_errors.append(errors)
+            cum_h2error.append(h2error)
+            cum_num_points.append(num_points)
+            cum_average_estimator.append(average_estimator)
+            # break
+        plt.figure(figsize=(8, 6))
+        for i, t in enumerate(range(len(cum_num_points))):
+            plt.plot(cum_num_points[i], cum_errors[i], label=f"Error for {num_triangles[i]} triangles")
+        plt.xlabel('Number of Points')
+        plt.ylabel('Error')
+        plt.title('Error Drop with Number of Points')
+        plt.legend()
+        # plt.show()
+        plt.savefig('sim_graphs/error_rate_drops/error_drop.png')
+
+        # plt.clf()
+        plt.figure(figsize=(8, 6))
+        for i, t in enumerate(range(len(cum_num_points))):
+            plt.plot(cum_num_points[i], cum_h2error[i], label=f"H2 Error for {num_triangles[i]} triangles")
+        plt.xlabel('Number of Points')
+        plt.ylabel('Error')
+        plt.title('H2 Error Drop with Number of Points')
+        plt.legend()
+        # save figure to png with matplot lib savefig
+
+        # plt.show()
+        plt.savefig('sim_graphs/error_rate_drops/h2_error_drop.png')
+
+        plt.figure(figsize=(8, 6))
+        # plot average estimator
+        for i, t in enumerate(range(len(cum_num_points))):
+            plt.plot(cum_num_points[i], cum_average_estimator[i], label=f"Average Estimator for {num_triangles[i]} triangles")
+        plt.xlabel('Number of Points')
+        plt.ylabel('Average Estimator')
+        plt.title('h with Average Estimator')
+        plt.legend()
+        # plt.show()
+        # save figure to png with matplot lib savefig
+        plt.savefig('sim_graphs/error_rate_drops/h_to_average_estimator.png')
+
+        # plot number of points
+        # plt.clf()
+        plt.figure(figsize=(8, 6))
+        for i, t in enumerate(range(len(cum_num_points))):
+            plt.plot(h_steps, cum_num_points[i], label=f"Number of Points for {num_triangles[i]} triangles")
+        plt.xlabel('h')
+        plt.ylabel('Number of Points')
+        plt.title('h with Number of Points')
+        plt.legend()
+        # plt.show()
+        # save figure to png with matplot lib savefig
+        plt.savefig('sim_graphs/error_rate_drops/h_to_num_points.png')
+
+        print("think more here")
+
+
+# simulations/simulations/sim_graphs/error_rate_drops
+
 if __name__ == '__main__':
     fem_simulator = FEMSimulator()
-    fem_simulator.run_single_triangle_simulation(0.2, plot=True)
+    fem_simulator.generate_error_drop_graph()
+    # fem_simulator.run_single_triangle_simulation(0.2, plot=True)
 
 
 

@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 import torch
-
+from torch_geometric.data import Data
 
 class OptimizerConfig(BaseModel):
     lr: float
@@ -34,12 +34,16 @@ class AgentParamsConfig(BaseModel):
     p: Optional[float] = None
     smoothing: Optional[bool] = None
     threshold: Optional[float] = None
-    time_reward: Optional[float] = None
+    expected_avg_improvement: Optional[float] = None
     timesteps: Optional[int] = None
     u: Optional[float] = None
     output_dim_size: int = None
     max_iterations_for_episode: int = None
     max_do_nothing_offset: int = None
+    min_est_error_before_removing_points: float = None
+    min_expected_avg_improvement: Optional[float] = None
+    time_steps_to_average_improvement: Optional[int] = None
+    large_neg_reward: Optional[float] = None
 
 
 class FlowParamsConfig(BaseModel):
@@ -79,3 +83,22 @@ class FlowConfig(BaseModel):
     geometry_params: GeometryParamsConfig
     solver_params: SolverParamsConfig
     geom_generator_params: GeometryGeneratorParams
+
+# previous_state.to(self.config.device), detached_state_choice_output,
+#                                        state.to(self.config.device), reward.to(self.config.device)
+
+class Transition(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    state: Data
+    state_choice_output: torch.Tensor
+    next_state: Optional[Data] = None
+    reward: torch.Tensor
+
+class BatchedTransition(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    state: List[Data]
+    state_choice_output: List[torch.Tensor]
+    next_state: List[Data]
+    reward: List[torch.Tensor]

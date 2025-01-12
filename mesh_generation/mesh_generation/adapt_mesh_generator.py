@@ -199,7 +199,7 @@ class AdaptMesher:
         for edge_index, label_idx in enumerate(mapping):
             label = shape_outline_parameters.labels[0][label_idx]
             split_label = label.split(":")
-            e[edge_index, 4] = int(split_label[0])
+            e[edge_index, 4] = 1
             e[edge_index, 5] = int(split_label[1][1:])
             e[edge_index, 6] = int(split_label[2][1:])
 

@@ -50,17 +50,36 @@ def load_config(restart: bool) -> FlowConfig:
     flow_config['optimizer']['lr'] = float(flow_config['optimizer']['lr'])
     flow_config['optimizer']['weight_decay'] = float(flow_config['optimizer']['weight_decay'])
     flow_config['optimizer']['batch_size'] = int(flow_config['optimizer']['batch_size'])
+    flow_config['optimizer']['batch_size'] = 32
 
     # Convert agent_params values to the correct types
     flow_config['agent_params']['target_update'] = int(flow_config['agent_params']['target_update'])
     flow_config['agent_params']['num_workers'] = int(flow_config['agent_params']['num_workers'])
     flow_config['agent_params']['num_parallel'] = int(flow_config['agent_params']['num_parallel'])
 
-    flow_config['agent_params']['output_dim_size'] = 5
+    flow_config['agent_params']['large_neg_reward'] = 0.6
+
+    # output dims:
+    # 0: terminate
+    # 1: add node suggestion strength
+    # 2: remove node suggestion strength
+    # 3: both add and remove node suggestion strength
+    # 4: node to add x
+    # 5: node to add y
+    # 6: node to remove x
+    # 7: node to remove y
+    flow_config['agent_params']['output_dim_size'] = 8
 
     flow_config['agent_params']['max_iterations_for_episode'] = 200
 
     flow_config['agent_params']['max_do_nothing_offset'] = 10
+
+    flow_config['agent_params']['expected_avg_improvement'] = 0.0004
+
+    flow_config['agent_params']['min_est_error_before_removing_points'] = 0.000014
+
+    flow_config['agent_params']['min_expected_avg_improvement'] = 0.0002
+    flow_config['agent_params']['time_steps_to_average_improvement'] = 10
 
     geometry_generator_params = GeometryGeneratorParams(
         min_triangles=1,

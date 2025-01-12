@@ -76,10 +76,8 @@ class ParameterServer:
             return self.policy_net_2.state_dict()
 
     def select_action(self, state):
-        action = self.policy_net_1(state)
-        choice = action[:,:3].argmax()
-        coordinates = action[:,3:]
-        return choice.to(self.config.device), coordinates.to(self.config.device)
+        state_choice_output = self.policy_net_1(state)
+        return state_choice_output[0]
 
     def select(self):
         return self.select

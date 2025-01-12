@@ -36,7 +36,10 @@ class MeshEditor:
         mesh = MeshTri1(p.T, cells.T)
         # self.visuzlizer.show_points_and_their_values(mesh.p.T)
         # self.visuzlizer.show_points_and_their_values(mesh.p.T, points_of_interest=np.array([cow]))
-        smoothed_mesh = cpt(mesh, smooth_steps=3)
+        try:
+            smoothed_mesh = cpt(mesh, smooth_steps=3)
+        except Exception as err:
+            print(err)
         return smoothed_mesh
 
     def get_edges_to_tiangles(self, triangles, edges):
@@ -96,6 +99,8 @@ class MeshEditor:
             e = np.vstack([e, new_entries])
         return p, t.astype(int), e.astype(int)
 
+
+
     def remove_point(self, problem_setup: FullProblemSetup, x: float, y: float):
         """Remove a point from the mesh."""
 
@@ -115,20 +120,25 @@ class MeshEditor:
         p_without_closest = np.delete(problem_setup.p, closest_row_index, axis=0)
         smoothed_mesh = self.remesh(p_without_closest)
 
-        # remesh does not resort points, so we can use p and t without any changes, other than adding labels of t back in
-        p = smoothed_mesh.p.T
-        t = smoothed_mesh.t.T
-        # note, really we should be correcting the new dimensions of t here, but they are always zero so fixing this will have to revisited
-        t = np.hstack((t, np.zeros((t.shape[0], 1), dtype=t.dtype)))
+        return self.generate_p_t_e_from_mesh(smoothed_mesh)
 
-        assert closest_row_index not in problem_setup.e[:,0] and closest_row_index not in problem_setup.e[:,1]
-        e = problem_setup.e
-        e[np.where(closest_row_index < problem_setup.e[:, 0]), 0] -= 1
-        e[np.where(closest_row_index < problem_setup.e[:, 1]), 1] -= 1
+        # # remesh does not resort points, so we can use p and t without any changes, other than adding labels of t back in
+        # p = smoothed_mesh.p.T
+        # t = smoothed_mesh.t.T
+        # # note, really we should be correcting the new dimensions of t here, but they are always zero so fixing this will have to revisited
+        # t = np.hstack((t, np.zeros((t.shape[0], 1), dtype=t.dtype)))
+        #
+        # self.visuzlizer.show_points_and_their_values(p[np.where(normed_distances < np.inf)])
+        #
+        # assert closest_row_index not in problem_setup.e[:,0] and closest_row_index not in problem_setup.e[:,1]
+        # e = problem_setup.e
+        # e[np.where(closest_row_index < problem_setup.e[:, 0]), 0] -= 1
+        # e[np.where(closest_row_index < problem_setup.e[:, 1]), 1] -= 1
+        #
+        # self.visuzlizer.show_points_and_their_values(p[e[:, 0]])
+        #
+        # # reset boundary point positions, we do not want to move those as they might be drawn to the interior
+        # p[e[:, 0]] = original_p_positions
+        #
+        # return p, t.astype(int), e.astype(int)
 
-        self.visuzlizer.show_points_and_their_values(p[e[:, 0]])
-
-        # reset boundary point positions, we do not want to move those as they might be drawn to the interior
-        p[e[:, 0]] = original_p_positions
-
-        return p, t.astype(int), e.astype(int)

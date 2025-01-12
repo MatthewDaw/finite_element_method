@@ -1,6 +1,7 @@
 
 import numpy as np
 from shapely.geometry import Point, Polygon
+from skfem import MeshTri1
 
 from common.exceptions import MeshBreakingError
 from common.pydantic_models import ShapeTransformationParameters, ShapeOutlineParameters
@@ -16,6 +17,7 @@ from torch_geometric.data import Data
 import torch
 import copy
 from shapely.geometry import Point, Polygon
+from adaptmesh.solve import laplace
 
 class DeepQEnvironSetup:
 
@@ -30,10 +32,11 @@ class DeepQEnvironSetup:
         self.shapely_polygon = None
         self.steps = None
         self.episodes = 0
-        self.last_estimated_error = None
+        self.error_history = []
+        self.starting_error = None
+        self.terminated = False
         self.reset()
-        self.do_nothing_offset = 0
-        self.NEGATIVE_REWARD = -1.
+        self.NEGATIVE_REWARD = -1.*self.config.agent_params.large_neg_reward
         self.mesh_editor = MeshEditor(config)
         self.visuzlizer = Visualizer()
 
@@ -84,7 +87,9 @@ class DeepQEnvironSetup:
         self.reset_shape()
         self.steps = 0
         self.num_episodes = 0
-        self.last_estimated_error = self.calculate_error()
+        self.terminated = False
+        self.error_history = [self.calculate_error()]
+        self.starting_error = self.error_history[0]
 
 
     def get_state(self):
@@ -149,24 +154,16 @@ class DeepQEnvironSetup:
         return Data(x=torch.tensor(x), edge_index=torch.tensor(edge_index), edge_attr=torch.tensor(edge_attr)).to(self.config.device)
 
     def add_node(self, coordinates):
-        try:
-            p, t, e = self.mesh_editor.add_point(self.course_problem_setup, float(coordinates[0][0]), float(coordinates[0][1]))
-            self.course_problem_setup.p = p
-            self.course_problem_setup.t = t
-            self.course_problem_setup.e = e
-        except MeshBreakingError:
-            return 3
-        return 4
+        p, t, e = self.mesh_editor.add_point(self.course_problem_setup, float(coordinates[0]), float(coordinates[1]))
+        self.course_problem_setup.p = p
+        self.course_problem_setup.t = t
+        self.course_problem_setup.e = e
 
     def remove_node(self, coordinates):
-        try:
-            p, t, e = self.mesh_editor.remove_point(self.course_problem_setup, float(coordinates[0][0]), float(coordinates[0][1]))
-            self.course_problem_setup.p = p
-            self.course_problem_setup.t = t
-            self.course_problem_setup.e = e
-        except MeshBreakingError:
-            return 3
-        return 4
+        p, t, e = self.mesh_editor.remove_point(self.course_problem_setup, float(coordinates[0]), float(coordinates[1]))
+        self.course_problem_setup.p = p
+        self.course_problem_setup.t = t
+        self.course_problem_setup.e = e
 
 
     def calculate_error(self):
@@ -174,80 +171,137 @@ class DeepQEnvironSetup:
         u = np.array(u)
         err, errorh2 = self.simulator.estimate_error_at_points(self.fine_problem_setup.p, self.fine_problem_setup.u, self.course_problem_setup.p, u, self.course_problem_setup.h)
         return err
-        print("think more here")
 
     def check_if_in_shape(self, coordinates):
         """Check if the coordinates are within the shape."""
         print("think more here")
 
-    def calculate_reward(self, new_error):
-        print("think more here")
-
-    def step(self, choice, scaled_coordinates):
-        """Running the action in the environment."""
-        choice = 1
-        coordinates = self.undo_scaling(scaled_coordinates)
-        coordinates = np.array([[ 0.83792781,  0.91771115]])
-
-        # mesh_update_action:
-        # 0: coordinates is out of bounds
-        # 1: error threshold met
-        # 2: max nodes reached
-        # 3: mesh broken
-        # 4: do nothing
-        # 5: successfully removed a node
-        # 6: successfully added a node
-
-        mesh_update_action = None
-
-        done = False
-
-        # Do nothing
-        if choice == 0:
-            self.do_nothing_offset += 1
-            mesh_update_action = 4
-
-        reward = 0
-
-        if not self.shapely_polygon.contains(Point(coordinates)):
-            reward = self.NEGATIVE_REWARD
-            mesh_update_action = 0
+    def calculate_reward(self, mesh_updated = False):
+        if mesh_updated:
+            new_error = self.calculate_error()
         else:
-            # add a node
-            if choice == 1:
-                mesh_update_action = self.add_node(coordinates)
-            # remove a node
-            if choice == 2:
-                mesh_update_action = self.remove_node(coordinates)
+            new_error = self.error_history[-1]
+        net_change_in_error = self.starting_error - new_error
 
-            # coordinate out of bounds
-            if mesh_update_action == 0:
-                reward = self.NEGATIVE_REWARD
-            # error threshold met
-            elif mesh_update_action == 1:
-                reward = self.NEGATIVE_REWARD * 0.5
-            # max number of nodes met
-            elif mesh_update_action == 2:
-                reward = self.NEGATIVE_REWARD * 0.5
-            # mesh broken
-            elif mesh_update_action == 3:
-                reward = self.NEGATIVE_REWARD * 0.5
-                done = True
-            # mesh update successful
-            elif mesh_update_action == 4:
-                new_error = self.calculate_error()
-                self.calculate_reward(new_error)
+        change_in_points_for_run = (self.starting_num_points - len(
+            self.course_problem_setup.p)) * self.config.agent_params.expected_avg_improvement
+
+        # if nothing is changing, give a negative reward to incentivize the agent to terminate faster
+        self.error_history.append(new_error)
+        self.config.agent_params.time_steps_to_average_improvement = 1
+        if len(self.error_history) > self.config.agent_params.time_steps_to_average_improvement + 10 or True:
+            numpy_hist = np.array(self.error_history)
+            improvements = numpy_hist[-self.config.agent_params.time_steps_to_average_improvement-1:-1] - numpy_hist[-self.config.agent_params.time_steps_to_average_improvement:]
+            avg_improvement = np.mean(improvements)
+            shifted_avg_improvement = avg_improvement - self.config.agent_params.min_expected_avg_improvement
+            if shifted_avg_improvement < 0:
+                self.terminated = True
+                return self.NEGATIVE_REWARD * 0.5
+
+        time_punishment = (self.steps / self.config.agent_params.max_iterations_for_episode) * self.config.agent_params.expected_avg_improvement
+
+        return (np.exp(net_change_in_error) - 1) + change_in_points_for_run - time_punishment
+
+
+
+    def determine_early_stop(self, state_choice_output, terminate_episode, add_point, remove_point, add_and_remove):
 
         if self.config.agent_params.max_iterations_for_episode <= self.steps:
-            done = True
+            # if the algorithm hasn't terminated yet, terminate it and give it a large negative reward for not terminating itself already
+            self.terminated = True
+            return self.NEGATIVE_REWARD
 
-        if self.do_nothing_offset >= self.config.agent_params.max_do_nothing_offset:
-            done = True
+        if terminate_episode:
+            self.terminated = True
+            return 0
 
-        if done:
-            self.episodes += 1
+        # if the agent is suggesting to add a point, check if the point is in the polygon
+        if add_point or add_and_remove:
+            add_point_in_polygon = self.shapely_polygon.contains(Point(state_choice_output[4:6]))
+            reward = 0
+            if not add_point_in_polygon:
+                self.terminated = True
+                reward = self.NEGATIVE_REWARD * 0.5
+            if add_and_remove:
+                remove_point_in_polygon = self.shapely_polygon.contains(Point(state_choice_output[6:8]))
+                if not remove_point_in_polygon:
+                    self.terminated = True
+                    reward += self.NEGATIVE_REWARD * 0.5
+            if self.terminated:
+                return reward
+
+        # if the agent is suggesting to remove a point, check if the point is in the polygon
+        if remove_point:
+            remove_point_in_polygon = self.shapely_polygon.contains(Point(state_choice_output[6:8]))
+            if not remove_point_in_polygon:
+                self.terminated = True
+                return self.NEGATIVE_REWARD * 0.5
+
+        # should always add point until estimate error is below threshold
+        if not add_point:
+            mesh = MeshTri1(self.course_problem_setup.p.T, self.course_problem_setup.t[:, :3].T)
+            estimate_error = np.mean(laplace(mesh))
+            if estimate_error < self.config.agent_params.min_est_error_before_removing_points:
+                self.terminated = True
+                return self.NEGATIVE_REWARD * 0.5
+
+    def step(self, state_choice_output):
+        """Running the action in the environment."""
+
+        #     # state_choice_output dim meanings:
+        #     # 0: terminate
+        #     # 1: add node suggestion strength
+        #     # 2: remove node suggestion strength
+        #     # 3: both add and remove node suggestion strength
+        #     # 4: node to add x
+        #     # 5: node to add y
+        #     # 6: node to remove x
+        #     # 7: node to remove y
 
         self.steps += 1
 
-        return reward, done
+        # initialize action choices
+        terminate_episode = False
+        add_point = False
+        remove_point = False
+        add_and_remove = False
 
+        # determine action
+        max_suggestion = np.max(state_choice_output[:4])
+        if state_choice_output[0] == max_suggestion:
+            terminate_episode = True
+        elif state_choice_output[1] == max_suggestion:
+            add_point = True
+        elif state_choice_output[2] == max_suggestion:
+            remove_point = True
+        elif state_choice_output[3] == max_suggestion:
+            add_and_remove = True
+
+        # undo scaling so coordinates match real shape
+        state_choice_output[4:6] = self.undo_scaling(state_choice_output[4:6].reshape(1, 2))
+        state_choice_output[6:8] = self.undo_scaling(state_choice_output[6:8].reshape(1, 2))
+
+        # # mocks for setting up testing, I guess
+        # state_choice_output[4:6] = np.array([ 0.8 , 0.5])
+        # state_choice_output[6:8] = np.array([ 0.8 , 0.5])
+        # add_and_remove = True
+
+        # check if the agent should stop early
+        reward = self.determine_early_stop(state_choice_output, terminate_episode, add_point, remove_point, add_and_remove)
+        if self.terminated:
+            return reward
+
+        try:
+            if add_point:
+                self.add_node(state_choice_output[4:6])
+            elif remove_point:
+                self.remove_node(state_choice_output[6:8])
+            elif add_and_remove:
+                # note, I should really have a function that does both of these at the same time
+                self.remove_node(state_choice_output[6:8])
+                self.add_node(state_choice_output[4:6])
+        except MeshBreakingError:
+            self.terminated = True
+            return self.NEGATIVE_REWARD
+
+        return self.calculate_reward(mesh_updated=True)
