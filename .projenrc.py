@@ -28,6 +28,7 @@ ROOT_PROJECT = PythonProject(
     ],
 )
 
+ROOT_PROJECT.add_git_ignore("**/cached_solutions")
 ROOT_PROJECT.add_git_ignore("**/.matt_experiment")
 ROOT_PROJECT.add_git_ignore("**/.idea")
 ROOT_PROJECT.add_git_ignore("**/cdk.out")
@@ -82,6 +83,12 @@ MESH_GENERATION_PROJECT = PythonProject(
         "numpy",
         "gmsh",
         "adaptmesh",
+        "torch-geometric",
+        "gym",
+        "torch",
+        "pandas",
+        "pydantic-numpy",
+        "shapely"
     ],
     dev_deps=[
     ],

@@ -4,6 +4,7 @@ from common.pydantic_models import ShapeOutlineParameters
 from adaptmesh import triangulate
 import numpy as np
 import matplotlib.pyplot as plt
+from shapely.geometry import Polygon
 
 class Triangulation(object):
     """Triangulation data structure"""
@@ -141,6 +142,32 @@ class AdaptMesher:
         plt.legend()
         plt.show()
 
+    def _angle_from_reference(self, p1, p2):
+        # Calculate the angle between the line formed by p1 and p2 with respect to the x-axis
+        return np.linalg.norm(p2 - p1)
+
+    def _order_points(self, points):
+        # Step 1: Choose a reference point (typically the point with the smallest y, then x)
+        reference_point = min(points, key=lambda p: (p[1], p[0]))
+
+        # Step 2: Sort the remaining points by angle relative to the reference point
+        sorted_points = sorted(enumerate(points), key=lambda p: self._angle_from_reference(reference_point, p[1]))
+
+        # Step 3: Return the sorted points including the reference point first
+        sorted_indices = [index for index, _ in sorted_points]
+        return sorted_indices
+
+    def _get_edges_from_ordered_points(self, points):
+        sorted_indices = self._order_points(points)
+
+        # Step 4: Create edges (connect each point to the next one using indices)
+        edges = []
+        for i in range(len(sorted_indices)):
+            edge = (sorted_indices[i], sorted_indices[(i + 1) % len(sorted_indices)])
+            edges.append(edge)
+
+        return edges
+
     def run_mesh(self, shape_outline_parameters: ShapeOutlineParameters, h: float):
         points = [(x, y) for x, y in zip(shape_outline_parameters.x_points[0], shape_outline_parameters.y_points[0])]
         points_reserved = points.copy()
@@ -157,20 +184,23 @@ class AdaptMesher:
 
         t[:, 0:3] = t_skfem.T
 
-        boundary_nodes = m.boundary_nodes()
-        left_points = boundary_nodes
-        right_points = np.array(list(boundary_nodes[1:]) + [boundary_nodes[0]])
-        e = np.zeros((len(boundary_nodes), 7))
-        e[:,:2] = np.array([left_points, right_points]).T
-        e[:, 5] = 1
+        boundary_facets = m.boundary_facets()
 
+        # Map these facets to their corresponding point indices
+        boundary_edges = m.facets[:, boundary_facets]
+        boundary_nodes = m.boundary_nodes()
+        e = np.zeros((len(boundary_nodes), 7))
+        e[:,:2] = boundary_edges.T
+        e[:, 5] = 1
         coarse_points, fine_points = np.array(points_reserved), m.p.T[m.boundary_nodes()]
         mapping = self.fit_points_to_line_segment(coarse_points, fine_points)
 
+        # TODO: this label assignment is not correct, not needed for deep learning but will need to revisit and fix later
         for edge_index, label_idx in enumerate(mapping):
             label = shape_outline_parameters.labels[0][label_idx]
             split_label = label.split(":")
             e[edge_index, 4] = int(split_label[0])
             e[edge_index, 5] = int(split_label[1][1:])
             e[edge_index, 6] = int(split_label[2][1:])
+
         return p, t.astype(int), e.astype(int)

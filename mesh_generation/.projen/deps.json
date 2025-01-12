@@ -13,6 +13,10 @@
       "type": "runtime"
     },
     {
+      "name": "pandas",
+      "type": "runtime"
+    },
+    {
       "name": "pygmsh",
       "type": "runtime"
     },
@@ -24,6 +28,14 @@
     {
       "name": "shapely",
       "version": "^2.0.0",
+      "type": "runtime"
+    },
+    {
+      "name": "torch",
+      "type": "runtime"
+    },
+    {
+      "name": "torch-geometric",
       "type": "runtime"
     },
     {

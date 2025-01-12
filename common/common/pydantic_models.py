@@ -3,9 +3,11 @@ from pydantic import BaseModel
 from typing import Optional, Callable, Any
 import hashlib
 import json
+import numpy as np
 
 class BaseFEMParameters(BaseModel):
-
+    class Config:
+        arbitrary_types_allowed = True
 
     def to_hash(self) -> str:
         """
@@ -71,8 +73,22 @@ class PDECoefficients(BaseFEMParameters):
 class TrainingDataPoint(BaseFEMParameters):
     h: float
     shape_parameters: ShapeOutlineParameters
-    p: list[list[float]]
-    t: list[list[float]]
-    e: list[list[float]]
+    p: np.ndarray
+    t: np.ndarray
+    e: np.ndarray
     estimated_u: list[float]
 
+
+class FullProblemSetup(BaseFEMParameters):
+    h: float
+    shape_parameters: ShapeOutlineParameters
+    pde_coefficients: PDECoefficients
+    p: np.ndarray
+    t: np.ndarray
+    e: np.ndarray
+    u: Optional[np.ndarray] = None
+
+class ShapeTransformationParameters(BaseFEMParameters):
+    x_shift: float
+    y_shift: float
+    scale: float

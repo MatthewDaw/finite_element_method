@@ -10,62 +10,6 @@ class FEMSolver:
     def __init__(self):
         pass
 
-    def load_example_disk_setup(self):
-
-        def exact(x1, x2, sdl):
-            return np.square(x1) + np.square(x2)
-
-        def c(x1, x2, sdl):
-            return 2 + x1 + x2
-
-        def a(x1, x2, sdl): return x1 + x2
-
-        def f(x1, x2, sdl):
-            return -8 - 6 * (x1 + x2) + (2 + x1 + x2) * \
-                (np.square(x1) + np.square(x2))
-
-        def b1(x1, x2, sdl):
-            return x1
-
-        def b2(x1, x2, sdl): return x2
-
-        # boundary conditions
-        def uD(x1, x2, sdl):
-            f = np.zeros(x1.shape)
-            I = sdl == 0
-            f[I] = np.square(x1[I]) + np.square(x2[I])
-            I = sdl == 1
-            f[I] = np.square(x1[I]) + np.square(x2[I])
-            return f
-
-        def sigma(x1, x2, sdl):
-            f = np.zeros(x1.shape)
-            I = sdl == 0
-            f[I] = 0
-            I = sdl == 1
-            f[I] = 2
-            return f
-
-        def mu(x1, x2, sdl):
-            f = np.zeros(x1.shape)
-            I = sdl == 0
-            f[I] = 2 * (2 + x1[I] + x2[I]) * (np.square(x1[I]) + \
-                                              np.square(x2[I]))
-            I = sdl == 1
-            f[I] = 2 * (2 + x1[I] + x2[I] + 1) * (np.square(x1[I]) + \
-                                                  np.square(x2[I]))
-            return f
-
-        bc = {}
-        bc["bsD"] = [1, 3]
-        bc["bsR"] = [4, 2]
-
-        bc["uD"] = uD
-        bc["sg"] = sigma
-        bc["mu"] = mu
-
-        return exact, c, a, f, b1, b2, bc
-
     def assemble_af(self, p, t, c, a, b1, b2, f=None):
         np_shape = p.shape[1]
         # mesh point indices

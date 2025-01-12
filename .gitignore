@@ -82,6 +82,7 @@ dmypy.json
 .pyre/
 .pytype/
 cython_debug/
+**/cached_solutions
 **/.matt_experiment
 **/.idea
 **/cdk.out

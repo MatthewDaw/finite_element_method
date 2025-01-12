@@ -7,8 +7,9 @@
       <sourceFolder url="file://$MODULE_DIR$/fem_solver" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/mesh_generation" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/simulations" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/.venv" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.12 (finite_element_method)" jdkType="Python SDK" />
+    <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
