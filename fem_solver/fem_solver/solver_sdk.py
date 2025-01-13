@@ -144,8 +144,8 @@ class FEMSolver:
             if bsD == None:  # all b.c. are Dirichlet
                 bsD = bsg
             local[bsD] = range(0, len(bsD))
-            if all(local == 0):
-                print('error. bsD+bsR~=number of boundary segments')
+            # if all(local == 0):
+            #     print('error. bsD+bsR~=number of boundary segments')
             eD = e[:, np.isin(k, bsD)]  # boudary with Dirichlet BC
             eD = eD[[0, 1, 4], :]
             sdl = local[eD[2, :]]

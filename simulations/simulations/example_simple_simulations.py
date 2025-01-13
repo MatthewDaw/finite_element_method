@@ -4,13 +4,15 @@ from skfem import MeshTri1
 
 from adaptmesh.solve import laplace
 from common.pydantic_models import FullProblemSetup
+from common.visuzalizers import Visualizer
 from dif_eq_setup.dif_eq_setup_server import DiffEQParameterServer
 from fem_solver.solver_sdk import FEMSolver
+from mesh_generation.mesh_dqn.mesh_editor.mesh_editor import MeshEditor
 from mesh_generation.mesh_generator_sdk import MeshSDK
 from mesh_generation.shape_generator import ShapeGenerator
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.interpolate import LinearNDInterpolator
+from scipy.interpolate import LinearNDInterpolator, NearestNDInterpolator
 import os
 
 class FEMSimulator:
@@ -23,6 +25,8 @@ class FEMSimulator:
         self.parameter_server = DiffEQParameterServer()
         self.mesh_sdk = MeshSDK()
         self.fem_solver = FEMSolver()
+        self.visuzlizer = Visualizer()
+        self.mesh_editor = MeshEditor()
 
     def validate_solution(self, p, u, exact_sol, h):
         """Validate the solution."""
@@ -96,10 +100,20 @@ class FEMSimulator:
         """Estimate error at points."""
         linear_interpolator = LinearNDInterpolator(p_to_project_onto, u_to_estimate[:,0])
         u_near_exact = linear_interpolator(p_to_project)
+
+        if np.any(np.isnan(u_near_exact)):
+            nearest_interpolator = NearestNDInterpolator(p_to_project_onto, u_to_estimate[:, 0])
+            nan_indices = np.isnan(u_near_exact)
+            u_near_exact[nan_indices] = nearest_interpolator(p_to_project[nan_indices])
+
+        # # we do nearest neighbor interpolation for the null evaluations
+        # linear_interpolator = LinearNDInterpolator(anchor_points_for_u, anchor_points_for_u[:, 0])
+
         h2 = h * h
         err, errorh2 = np.linalg.norm(u_near_exact - anchor_points_for_u[:, 0]), np.linalg.norm(
             u_near_exact - anchor_points_for_u[:, 0]) / h2
         return err, errorh2
+        # self.visuzlizer.show_points_and_their_values(p_to_project, u_near_exact)
 
     def _estimate_mesh_error(self, p, shape_outline_parameters, pde_coefficients, estimated_solution, h, *args, **kwargs):
         near_exact_sol, points_at_p = self._calculate_and_save_near_exact_solution(shape_outline_parameters, pde_coefficients, *args, **kwargs)
@@ -114,9 +128,14 @@ class FEMSimulator:
         boundary_labels = list(set([int(el.split(':')[0]) for el in shape_parameters.labels[0]]))
         pde_coefficients, _ = self.parameter_server.load_simple_poisson_setup(boundary_labels)
         p, t, e = self.mesh_sdk.generate_adapt_mesh(shape_parameters, h)
+        # remishing does a slight transformation. I have to do this for when adding points.
+        # to the delta of adding poitns more reliable, we do this here
+        mesh = self.mesh_editor.remesh_with_boundaries(p, e[:,:2])
+        new_p, new_t, new_e = self.mesh_editor.generate_p_t_e_from_mesh(mesh)
+
         u = None
         if solve:
-            u = self.fem_solver.solve(p, t, e, pde_coefficients)
+            u = self.fem_solver.solve(new_p, new_t, new_e, pde_coefficients)
         return FullProblemSetup(
             h=h,
             shape_parameters=shape_parameters,

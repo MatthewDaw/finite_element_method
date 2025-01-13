@@ -4,7 +4,6 @@ from common.pydantic_models import ShapeOutlineParameters
 from adaptmesh import triangulate
 import numpy as np
 import matplotlib.pyplot as plt
-from shapely.geometry import Polygon
 
 class Triangulation(object):
     """Triangulation data structure"""

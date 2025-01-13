@@ -181,7 +181,7 @@ class ShapeGenerator:
         fake_arc_center = [0.0, 0.0, 0.0]
         rect1_arc_center = [[fake_arc_center for _ in range(len(selected_x))]]
         edge_types = [['line' for _ in range(len(selected_x))]]
-        labels = [[f"{i}:L1:R0" for i in range(len(selected_x))]]
+        labels = [[f"1:L1:R0" for i in range(len(selected_x))]]
         line_loop_groups = [[0]]
         return ShapeOutlineParameters(x_points=x_points, y_points=y_points, z_points=z_points, arc_center=rect1_arc_center,
                                       edge_types=edge_types, labels=labels, line_loop_groups=line_loop_groups)

@@ -29,110 +29,98 @@ from mesh_generation.mesh_dqn.replay_memory import ReplayMemory
 from mesh_generation.mesh_dqn.data_handler import DataHandler
 from mesh_generation.mesh_dqn.DeepQEnvironSetup import DeepQEnvironSetup
 
+import warnings
+
+# Suppress specific warnings by matching the message
+warnings.filterwarnings(
+    "ignore",
+    message="Initializing InteriorFacetBasis\\(MeshTri1, ElementTriP1\\) with no facets.",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=r"Criterion not satisfied in \d+ refinement loops\.",
+)
+from scipy.sparse import SparseEfficiencyWarning
+
 random.seed(42)
 np.random.seed(42)
 
 class Trainer:
 
     def __init__(self):
+        self.use_model_1 = True
         self.config = load_config(restart=False)
         self.transition = namedtuple('Transition',('state', 'action', 'next_state', 'reward'))
         self.reply_memory = ReplayMemory(self.transition, 10000)
         self.criterion = nn.HuberLoss()
-        self.parameter_server = ParameterServer(self.config)
-        self.data_handler = DataHandler(self.config)
         self.deep_q_environment_setup = DeepQEnvironSetup(self.config)
+        self.parameter_server = ParameterServer(self.config, self.deep_q_environment_setup)
+        self.data_handler = DataHandler(self.config)
 
-    def optimize_model(self, optimizer):
-        ps = self.parameter_server
-        # memory = self.reply_memory
-        # flow_config = self.config
-        # Transition = self.transition
-        # criterion = self.criterion
-        # data_handler = self.data_handler
+
+    def optimize_model(self):
+        """Optimize the model."""
+
         if len(self.reply_memory) < self.config.optimizer.batch_size:
             return
 
         transitions = self.reply_memory.sample(self.config.optimizer.batch_size)
-        print("think more here")
-
         batched_transition = BatchedTransition(
-        state=[t.state for t in transitions],
-        detached_state_choice_output=[t.state_choice_output for t in transitions],
-        next_state=[t.next_state for t in transitions],
-        reward=[t.reward for t in transitions],
-    )
-
-        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-                                                batched_transition.next_state)), dtype=torch.bool)
-        non_final_next_states = [s for s in batched_transition.next_state if s is not None]
-
-        # Get batch
-        state_batch = batched_transition.state
-        action_batch = torch.cat(batched_transition.state_choice_output).to(self.config.device)
-        reward_batch = torch.cat(batched_transition.reward).to(self.config.device)
+            state=[t.state for t in transitions],
+            state_choice_output=[t.state_choice_output for t in transitions],
+            next_state=[t.next_state for t in transitions],
+            reward=[t.reward for t in transitions],
+        )
 
         # Easiest way to batch this
-        loader = DataLoader(state_batch, batch_size=self.config.optimizer.batch_size)
+        loader = DataLoader(batched_transition.state, batch_size=self.config.optimizer.batch_size)
         for data in loader:
-            output = ps.policy_net_1(data)
+            action_output = self.parameter_server.actor_policy_net_1(data)
+            current_q_output = self.parameter_server.critic_net_1(data, action_output)
 
-        state_action_values = output[:, action_batch[:, 0]].diag()
+        target_q_outputs = torch.zeros(current_q_output.shape[0]).to(self.config.device).float()
+        non_final_next_states_mask = [s is not None for s in batched_transition.next_state]
+        non_final_next_states = [s for s in batched_transition.next_state if s is not None]
 
-        # Compute V(s_{t+1}) for all next states.
-        # Expected values of actions for non_final_next_states are computed based
-        # on the "older" target_net; selecting their best reward with max(1)[0].
-        # This is merged based on the mask, such that we'll have either the expected
-        # state value or 0 in case the state was final.
-        next_state_values = torch.zeros(self.config.optimizer.batch_size).to(self.config.device).float()
-        loader = DataLoader(non_final_next_states, batch_size=self.config.optimizer.batch_size)
+        if len(non_final_next_states) > 0:
+            loader = DataLoader(non_final_next_states, batch_size=self.config.optimizer.batch_size)
+            for data in loader:
+                action_output = self.parameter_server.actor_policy_net_2(data)
+                estimated_q = self.parameter_server.critic_net_2(data, action_output)[:,0]
+                target_q_outputs[non_final_next_states_mask] = estimated_q
 
-        # get batched output
+        target_q_outputs = torch.tensor(batched_transition.reward).to(self.config.device) + self.config.epsilon.gamma * target_q_outputs
+        critic_loss = self.criterion(current_q_output.float(), target_q_outputs.float())
+        # Update critic network
+        self.parameter_server.critic_optimizer.zero_grad()
+        critic_loss.backward()
+        self.parameter_server.critic_optimizer.step()
+
+        loader = DataLoader(batched_transition.state, batch_size=self.config.optimizer.batch_size)
         for data in loader:
-            try:
-                output = ps.policy_net_2(data).max(1)[0]
-            except RuntimeError:
-                print("\n\n")
-                # print(data)
-                # print(data.x)
-                # print(data.edge_index)
-                # print(data.edge_attr)
-                print("\n\n")
-                raise
+            action_output = self.parameter_server.actor_policy_net_1(data)
+            current_q_output = self.parameter_server.critic_net_1(data, action_output)
 
+        # Actor Loss: Use critic to evaluate actor's output for the current state
+        actor_loss = -torch.mean(current_q_output)
 
-        next_state_values[non_final_mask] = output
-        # Compute the expected Q values
-        expected_state_action_values = (next_state_values * self.config.epsilon.gamma) + reward_batch
+        # Optimize the model
+        self.parameter_server.optimizer.zero_grad()
+        actor_loss.backward()
+        self.parameter_server.optimizer.step()
 
-        # Compute Huber loss
-        loss = self.criterion(state_action_values.float(), expected_state_action_values.float()).float()
-        self.data_handler.losses.append(loss.item())
+        self.data_handler.losses.append(actor_loss.item())
+        self.data_handler.critic_losses.append(critic_loss.item())
         if ((len(self.reply_memory) % 25) == 0):
             np.save("./{}/{}losses.npy".format(self.config.save_dir, self.config.agent_params.prefix),
                     self.data_handler.losses)
+            np.save("./{}/{}critic_losses.npy".format(self.config.save_dir, self.config.agent_params.prefix),
+                    self.data_handler.critic_losses)
+            print("Losses saved.")
+            print(f"Losess: {self.data_handler.losses[-25:]}")
 
-        # Optimize the model
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        print("think more here")
-
-        # transitions = memory.sample(self.config.optimizer.batch_size)
-        # batch = self.transition(*zip(*transitions))
-        #
-        # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-        #                                         batch.next_state)), dtype=torch.bool)
-        # non_final_next_states = [s for s in batch.next_state if s is not None]
-
-        # state_batch = batch.state
-        # action_batch = torch.cat(batch.action).to(self.config.device)
-        # reward_batch = torch.cat(batch.reward).to(self.config.device)
 
     def train(self):
-        first = True
-        optimizer = self.parameter_server.optimizer_fn(self.parameter_server.policy_net_1.parameters())
         start_ep = len(self.data_handler.rewards) if (self.config.restart) else 0
 
         for episode in range(start_ep, self.config.agent_params.episodes):
@@ -142,56 +130,74 @@ class Trainer:
             self.deep_q_environment_setup.reset()
             previous_state = self.deep_q_environment_setup.get_state()
 
-            for t in tqdm(count()):
-                state_choice_output = self.parameter_server.select_action(previous_state)
+            while True:
+                state_choice_output = self.parameter_server.select_action(previous_state, episode)
                 detached_state_choice_output = state_choice_output.detach().numpy()
-
                 reward = self.deep_q_environment_setup.step(detached_state_choice_output)
                 episode_actions.append(detached_state_choice_output)
                 episode_rewards.append(reward)
                 acc_rew += reward
                 reward = torch.tensor([reward])
 
-                if not self.deep_q_environment_setup.terminated:
+                if self.deep_q_environment_setup.terminated:
                     next_state = None
                     transition = Transition(
                         state=previous_state.to(self.config.device),
-                        detached_state_choice_output=state_choice_output.detach(),
+                        state_choice_output=state_choice_output.detach(),
                         next_state=next_state,
                         reward=reward.to(self.config.device)
                     )
                 else:
+
                     next_state = self.deep_q_environment_setup.get_state()
                     transition = Transition(
                         state=previous_state.to(self.config.device),
-                        state_choice_output=state_choice_output.detach(),
+                        state_choice_output=state_choice_output.to(self.config.device),
                         next_state=next_state.to(self.config.device),
                         reward=reward.to(self.config.device)
                     )
+                    previous_state = next_state
 
                 self.reply_memory.push(transition)
 
-                self.optimize_model(optimizer)
+                self.optimize_model()
 
                 if self.deep_q_environment_setup.terminated:
                     self.data_handler.ep_rewards.append(acc_rew)
                     break
+
+            self.data_handler.shape_parameters.append(np.stack([self.deep_q_environment_setup.course_problem_setup.shape_parameters.x_points[0], self.deep_q_environment_setup.course_problem_setup.shape_parameters.y_points[0]]).shape)
             self.data_handler.all_actions.append(np.array(episode_actions))
             self.data_handler.all_rewards.append(np.array(episode_rewards))
 
-
-
             if ((episode % self.config.agent_params.target_update) == 0):
-                # target_net.load_state_dict(policy_net.state_dict())
-                if (first):
-                    optimizer = self.parameter_server.optimizer_fn(self.parameter_server.policy_net_1.parameters())
-                    first = False
+                if self.use_model_1:
+                    self.parameter_server.optimizer = self.parameter_server.optimizer_fn(self.parameter_server.actor_policy_net_1.parameters())
+                    self.parameter_server.critic_optimizer = self.parameter_server.optimizer_fn(self.parameter_server.critic_net_1.parameters())
                 else:
-                    optimizer = self.parameter_server.optimizer_fn(self.parameter_server.policy_net_2.parameters())
-                    first = True
+                    self.parameter_server.optimizer = self.parameter_server.optimizer_fn(self.parameter_server.actor_policy_net_2.parameters())
+                    self.parameter_server.critic_optimizer = self.parameter_server.optimizer_fn(self.parameter_server.critic_net_2.parameters())
+                self.use_model_1 = not(self.use_model_1)
 
+            if (len(self.data_handler.ep_rewards) % 15 == 0):
+                np.save("./{}/{}shape_outlines.npy".format(self.config.save_dir, self.config.agent_params.prefix),
+                        np.array(self.data_handler.shape_parameters, dtype=object))
+                np.save("./{}/{}actions.npy".format(self.config.save_dir, self.config.agent_params.prefix),
+                        np.array(self.data_handler.all_actions, dtype=object))
+                np.save("./{}/{}rewards.npy".format(self.config.save_dir, self.config.agent_params.prefix),
+                        np.array(self.data_handler.all_rewards, dtype=object))
+                torch.save(self.parameter_server.actor_policy_net_1.state_dict(), "./{}/{}actor_policy_net_1.pt".format(self.config.save_dir, self.config.agent_params.prefix))
+                torch.save(self.parameter_server.actor_policy_net_2.state_dict(), "./{}/{}actor_policy_net_2.pt".format(self.config.save_dir, self.config.agent_params.prefix))
 
 if __name__ == '__main__':
     trainer = Trainer()
-    trainer.train()
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="Initializing InteriorFacetBasis\\(MeshTri1, ElementTriP1\\) with no facets."
+        )
+        warnings.simplefilter("ignore", SparseEfficiencyWarning)
+        warnings.filterwarnings("ignore",
+                                message="Robust predicates not available, falling back on non-robust implementation")
+        trainer.train()
     print("Training complete.")

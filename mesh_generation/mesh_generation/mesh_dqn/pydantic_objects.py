@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Union
 from pydantic import BaseModel
 import torch
 from torch_geometric.data import Data
@@ -100,5 +100,5 @@ class BatchedTransition(BaseModel):
         arbitrary_types_allowed = True
     state: List[Data]
     state_choice_output: List[torch.Tensor]
-    next_state: List[Data]
+    next_state: List[Union[Data, None]]
     reward: List[torch.Tensor]

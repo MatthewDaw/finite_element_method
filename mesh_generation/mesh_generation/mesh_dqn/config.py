@@ -19,7 +19,7 @@ def load_config(restart: bool) -> FlowConfig:
         with open(f"./{save_dir}/config.yaml", 'r') as stream:
             flow_config = yaml.safe_load(stream)
         for f in os.listdir(save_dir):
-            RESTART_NUM += int(f"{PREFIX}policy_net_1.pt" in f)
+            RESTART_NUM += int(f"{PREFIX}actor_policy_net_1.pt" in f)
         print(f"\n\nrestart NUM: {RESTART_NUM}\n\n")
     else:
         with open(f"./configs/ray_{PREFIX.split('_')[0]}.yaml", 'r') as stream:

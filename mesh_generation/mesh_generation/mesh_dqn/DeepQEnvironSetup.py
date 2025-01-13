@@ -35,12 +35,9 @@ class DeepQEnvironSetup:
         self.error_history = []
         self.starting_error = None
         self.terminated = False
-        self.reset()
         self.NEGATIVE_REWARD = -1.*self.config.agent_params.large_neg_reward
-        self.mesh_editor = MeshEditor(config)
+        self.mesh_editor = MeshEditor()
         self.visuzlizer = Visualizer()
-
-
 
     def set_shape_transformation_parameters(self, shape_outline_parameters: ShapeOutlineParameters):
         min_x = np.min(shape_outline_parameters.x_points)
@@ -55,6 +52,16 @@ class DeepQEnvironSetup:
             y_shift=-1*min_y,
             scale=1/scale
         )
+
+    def select_random_point_in_mesh(self):
+        minx, miny, maxx, maxy = self.shapely_polygon.bounds
+        while True:
+            x = np.random.uniform(minx, maxx)
+            y = np.random.uniform(miny, maxy)
+            point = Point(x, y)
+            if self.shapely_polygon.contains(point):
+                return point
+
 
     def perform_scaling(self, coordinates: np.ndarray):
         """Perform scaling on the coordinates."""
@@ -155,6 +162,9 @@ class DeepQEnvironSetup:
 
     def add_node(self, coordinates):
         p, t, e = self.mesh_editor.add_point(self.course_problem_setup, float(coordinates[0]), float(coordinates[1]))
+        if np.isnan(p).any():
+            p, t, e = self.mesh_editor.add_point(self.course_problem_setup, float(coordinates[0]),
+                                                 float(coordinates[1]))
         self.course_problem_setup.p = p
         self.course_problem_setup.t = t
         self.course_problem_setup.e = e
@@ -165,22 +175,14 @@ class DeepQEnvironSetup:
         self.course_problem_setup.t = t
         self.course_problem_setup.e = e
 
-
     def calculate_error(self):
         u = self.simulator.fem_solver.solve(self.course_problem_setup.p, self.course_problem_setup.t, self.course_problem_setup.e, self.course_problem_setup.pde_coefficients)
         u = np.array(u)
         err, errorh2 = self.simulator.estimate_error_at_points(self.fine_problem_setup.p, self.fine_problem_setup.u, self.course_problem_setup.p, u, self.course_problem_setup.h)
         return err
 
-    def check_if_in_shape(self, coordinates):
-        """Check if the coordinates are within the shape."""
-        print("think more here")
-
-    def calculate_reward(self, mesh_updated = False):
-        if mesh_updated:
-            new_error = self.calculate_error()
-        else:
-            new_error = self.error_history[-1]
+    def calculate_reward(self, add_point, remove_point, add_and_remove):
+        new_error = self.calculate_error()
         net_change_in_error = self.starting_error - new_error
 
         change_in_points_for_run = (self.starting_num_points - len(
@@ -188,8 +190,7 @@ class DeepQEnvironSetup:
 
         # if nothing is changing, give a negative reward to incentivize the agent to terminate faster
         self.error_history.append(new_error)
-        self.config.agent_params.time_steps_to_average_improvement = 1
-        if len(self.error_history) > self.config.agent_params.time_steps_to_average_improvement + 10 or True:
+        if len(self.error_history) > self.config.agent_params.time_steps_to_average_improvement + 10:
             numpy_hist = np.array(self.error_history)
             improvements = numpy_hist[-self.config.agent_params.time_steps_to_average_improvement-1:-1] - numpy_hist[-self.config.agent_params.time_steps_to_average_improvement:]
             avg_improvement = np.mean(improvements)
@@ -245,7 +246,7 @@ class DeepQEnvironSetup:
                 self.terminated = True
                 return self.NEGATIVE_REWARD * 0.5
 
-    def step(self, state_choice_output):
+    def step(self, state_choice_output_original):
         """Running the action in the environment."""
 
         #     # state_choice_output dim meanings:
@@ -257,6 +258,8 @@ class DeepQEnvironSetup:
         #     # 5: node to add y
         #     # 6: node to remove x
         #     # 7: node to remove y
+
+        state_choice_output = copy.deepcopy(state_choice_output_original)
 
         self.steps += 1
 
@@ -282,9 +285,11 @@ class DeepQEnvironSetup:
         state_choice_output[6:8] = self.undo_scaling(state_choice_output[6:8].reshape(1, 2))
 
         # # mocks for setting up testing, I guess
-        # state_choice_output[4:6] = np.array([ 0.8 , 0.5])
-        # state_choice_output[6:8] = np.array([ 0.8 , 0.5])
-        # add_and_remove = True
+        # state_choice_output[4:6] = np.array([ -0.03894506, -0.21932602])
+        # state_choice_output[6:8] = np.array([ -0.03894506, -0.21932602])
+        # remove_point = False
+        # add_point = True
+        # add_and_remove = False
 
         # check if the agent should stop early
         reward = self.determine_early_stop(state_choice_output, terminate_episode, add_point, remove_point, add_and_remove)
@@ -303,5 +308,4 @@ class DeepQEnvironSetup:
         except MeshBreakingError:
             self.terminated = True
             return self.NEGATIVE_REWARD
-
-        return self.calculate_reward(mesh_updated=True)
+        return self.calculate_reward(add_point, remove_point, add_and_remove)

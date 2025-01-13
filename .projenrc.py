@@ -83,11 +83,11 @@ MESH_GENERATION_PROJECT = PythonProject(
         "numpy",
         "gmsh",
         "adaptmesh",
+        "triangle",
         "torch-geometric",
         "gym",
         "torch",
         "pandas",
-        "pydantic-numpy",
         "shapely"
     ],
     dev_deps=[

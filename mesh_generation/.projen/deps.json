@@ -9,6 +9,10 @@
       "type": "runtime"
     },
     {
+      "name": "gym",
+      "type": "runtime"
+    },
+    {
       "name": "numpy",
       "type": "runtime"
     },
@@ -27,7 +31,6 @@
     },
     {
       "name": "shapely",
-      "version": "^2.0.0",
       "type": "runtime"
     },
     {
@@ -36,6 +39,10 @@
     },
     {
       "name": "torch-geometric",
+      "type": "runtime"
+    },
+    {
+      "name": "triangle",
       "type": "runtime"
     },
     {

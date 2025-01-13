@@ -19,10 +19,12 @@ class DataHandler:
         self.rewards = []
         self.ep_rewards = []
         self.losses = []
+        self.critic_losses = []
         self.actions = []
         self.epss = []
         self.all_actions = []
         self.all_rewards = []
+        self.shape_parameters = []
 
         if(self.config.restart):
 
@@ -41,8 +43,10 @@ class DataHandler:
                 self.ep_rewards = []
             try:
                 self.losses = list(np.load(self.save_dir + "losses.npy", allow_pickle=True))
+                self.critic_losses = list(np.load(self.save_dir + "critic_losses.npy", allow_pickle=True))
             except OSError:
                 self.losses = []
+                self.critic_losses = []
             try:
                 self.actions = list(np.load(self.save_dir + "actions.npy", allow_pickle=True))
             except OSError:
@@ -67,6 +71,10 @@ class DataHandler:
         """Add a loss to the data."""
         self.losses.append(loss)
 
+    def add_critic_loss(self, loss):
+        """Add a loss to the data."""
+        self.critic_losses.append(loss)
+
     def add_episode(self, ep_rew, ep_action):
         """Add an episode to the data."""
         self.rewards.append(sum(ep_rew))
@@ -78,6 +86,7 @@ class DataHandler:
         np.save(self.save_dir + "reward.npy", self.rewards)
         np.save(self.save_dir + "rewards.npy", self.ep_rewards)
         np.save(self.save_dir + "losses.npy", self.losses)
+        np.save(self.save_dir + "critic_losses.npy", self.critic_losses)
         np.save(self.save_dir + "actions.npy", self.actions)
         np.save(self.save_dir + "eps.npy", self.epss)
 
