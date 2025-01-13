@@ -181,7 +181,7 @@ class DeepQEnvironSetup:
         err, errorh2 = self.simulator.estimate_error_at_points(self.fine_problem_setup.p, self.fine_problem_setup.u, self.course_problem_setup.p, u, self.course_problem_setup.h)
         return err
 
-    def calculate_reward(self, add_point, remove_point, add_and_remove):
+    def calculate_reward(self):
         new_error = self.calculate_error()
         net_change_in_error = self.starting_error - new_error
 
@@ -308,4 +308,4 @@ class DeepQEnvironSetup:
         except MeshBreakingError:
             self.terminated = True
             return self.NEGATIVE_REWARD
-        return self.calculate_reward(add_point, remove_point, add_and_remove)
+        return self.calculate_reward()
