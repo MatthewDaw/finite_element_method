@@ -3,12 +3,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from mesh_generation.mesh_dqn.pydantic_objects import FlowConfig
-
+import os
 
 def _movingaverage(values, window):
     weights = np.repeat(1.0, window)/window
     sma = np.convolve(values, weights, 'valid')
     return sma
+
+#         print(f"""
+#         avg_percent_points_in_shape: {avg_percent_points_in_shape}
+#         avg_percent_points_within_bounds: {avg_percent_points_within_bounds}
+#         avg_average_variance_loss: {avg_average_variance_loss}
+#         average_loss {average_loss}
+#         self.training_iteration_count: {self.training_iteration_count}
+#         """)
 
 class DataHandler:
     """Class to handle data for the DQN training."""
@@ -16,79 +24,55 @@ class DataHandler:
     def __init__(self, config: FlowConfig):
         self.config = config
         self.save_dir = self.config.save_dir
-        self.rewards = []
-        self.ep_rewards = []
-        self.losses = []
-        self.critic_losses = []
-        self.actions = []
-        self.epss = []
-        self.all_actions = []
-        self.all_rewards = []
-        self.shape_parameters = []
+        self.training_iteration_count = 0
 
-        if(self.config.restart):
+        self.avg_percent_points_in_shape = []
+        self.avg_percent_points_within_bounds = []
+        self.avg_average_variance_loss = []
+        self.average_loss = []
+        self.training_iteration_count_list = []
 
-            self.all_actions = list(np.load("./{}/{}actions.npy".format(self.save_dir, config.agent_params.prefix), allow_pickle=True))
-            self.all_rewards = list(np.load("./{}/{}rewards.npy".format(self.save_dir, config.agent_params.prefix), allow_pickle=True))
 
-            for i in range(self.config['restart_num']-1):
-                self.save_dir += "RESTART_"
-            try:
-                self.rewards = list(np.load(self.save_dir + "reward.npy", allow_pickle=True))
-            except OSError:
-                self.rewards = []
-            try:
-                self.ep_rewards = list(np.load(self.save_dir + "rewards.npy", allow_pickle=True))
-            except OSError:
-                self.ep_rewards = []
-            try:
-                self.losses = list(np.load(self.save_dir + "losses.npy", allow_pickle=True))
-                self.critic_losses = list(np.load(self.save_dir + "critic_losses.npy", allow_pickle=True))
-            except OSError:
-                self.losses = []
-                self.critic_losses = []
-            try:
-                self.actions = list(np.load(self.save_dir + "actions.npy", allow_pickle=True))
-            except OSError:
-                self.actions = []
-            try:
-                self.epss = list(np.load(self.save_dir + "eps.npy", allow_pickle=True))
-            except OSError:
-                self.epss = []
-            self.save_dir += "RESTART_"
+        if(not self.config.restart):
+
+            avg_percent_points_in_shape_path = "./{}/{}avg_percent_points_in_shape.npy".format(self.save_dir, config.agent_params.prefix)
+            if os.path.exists(avg_percent_points_in_shape_path):
+                self.avg_percent_points_in_shape = list(np.load(avg_percent_points_in_shape_path, allow_pickle=True))
+
+            avg_percent_points_within_bounds_path = "./{}/{}avg_percent_points_within_bounds.npy".format(self.save_dir, config.agent_params.prefix)
+            if os.path.exists(avg_percent_points_within_bounds_path):
+                self.avg_percent_points_within_bounds = list(np.load(avg_percent_points_within_bounds_path, allow_pickle=True))
+
+            avg_average_variance_loss_path = "./{}/{}avg_average_variance_loss.npy".format(self.save_dir, config.agent_params.prefix)
+            if os.path.exists(avg_average_variance_loss_path):
+                self.avg_average_variance_loss = list(np.load(avg_average_variance_loss_path, allow_pickle=True))
+
+            average_loss_path = "./{}/{}average_loss.npy".format(self.save_dir, config.agent_params.prefix)
+            if os.path.exists(average_loss_path):
+                self.average_loss = list(np.load(average_loss_path, allow_pickle=True))
+
+            training_iteration_count_list_path = "./{}/{}training_iteration_count_list.npy".format(self.save_dir, config.agent_params.prefix)
+            if os.path.exists(training_iteration_count_list_path):
+                self.training_iteration_count_list = list(np.load(training_iteration_count_list_path, allow_pickle=True))
+                self.training_iteration_count = self.training_iteration_count_list[-1]
+
             print("\n\nWRITING\n\n")
             self.write()
 
-    def add_eps(self, eps):
-        """Add an epsilon to the data."""
-        self.epss.append(eps)
-
-    def num_eps(self):
-        """Return the number of episodes."""
-        return len(self.epss)
-
-    def add_loss(self, loss):
-        """Add a loss to the data."""
-        self.losses.append(loss)
-
-    def add_critic_loss(self, loss):
-        """Add a loss to the data."""
-        self.critic_losses.append(loss)
-
-    def add_episode(self, ep_rew, ep_action):
-        """Add an episode to the data."""
-        self.rewards.append(sum(ep_rew))
-        self.ep_rewards.append(ep_rew)
-        self.actions.append(ep_action)
 
     def write(self):
         """Write the data to disk."""
-        np.save(self.save_dir + "reward.npy", self.rewards)
-        np.save(self.save_dir + "rewards.npy", self.ep_rewards)
-        np.save(self.save_dir + "losses.npy", self.losses)
-        np.save(self.save_dir + "critic_losses.npy", self.critic_losses)
-        np.save(self.save_dir + "actions.npy", self.actions)
-        np.save(self.save_dir + "eps.npy", self.epss)
+        np.save("./{}/{}avg_percent_points_in_shape.npy".format(self.save_dir, self.config.agent_params.prefix),
+                self.avg_percent_points_in_shape)
+        np.save("./{}/{}avg_percent_points_within_bounds.npy".format(self.save_dir, self.config.agent_params.prefix),
+                self.avg_percent_points_within_bounds)
+        np.save("./{}/{}avg_average_variance_loss.npy".format(self.save_dir, self.config.agent_params.prefix),
+                self.avg_average_variance_loss)
+        np.save("./{}/{}average_loss.npy".format(self.save_dir, self.config.agent_params.prefix),
+                self.average_loss)
+        np.save("./{}/{}training_iteration_count_list.npy".format(self.save_dir, self.config.agent_params.prefix),
+                self.training_iteration_count_list)
+
 
     def plot(self):
         """Plot the training reward."""

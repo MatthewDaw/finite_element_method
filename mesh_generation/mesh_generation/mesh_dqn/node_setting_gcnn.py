@@ -20,6 +20,14 @@ else:
     print("USING CPU")
     device = torch.device("cpu")
 
+class BoundedOutputLayer(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.activation = nn.Hardtanh(min_val=0, max_val=1)
+
+    def forward(self, x):
+        return self.activation(x)
+
 class NodeSettingNet(torch.nn.Module):
     def __init__(self, output_dim, conv_width=64, topk=0.5, initial_num_nodes=None):
 
@@ -41,6 +49,7 @@ class NodeSettingNet(torch.nn.Module):
         self.lin1 = torch.nn.Linear(2*conv_width, 128)
         self.lin2 = torch.nn.Linear(128, 100)
         self.lin3 = torch.nn.Linear(100, output_dim)
+        self.normalizer = BoundedOutputLayer()
         torch.manual_seed(0)
         self.reset()
 
@@ -78,7 +87,12 @@ class NodeSettingNet(torch.nn.Module):
         returns: Predicted normalized drag value
         """
         x, edge_index, batch = data.x.float(), data.edge_index, data.batch
-        #print(x.shape)
+
+        assert torch.max(data.x.float()[:,0]) == 1.0
+        assert torch.min(data.x.float()[:, 0]) == 0.0
+
+        assert torch.max(data.x.float()[:,1]) == 1.0
+        assert torch.min(data.x.float()[:, 1]) == 0.0
 
         x = F.relu(self.conv1(x, edge_index))
         #print(x.shape)
@@ -133,11 +147,11 @@ class NodeSettingNet(torch.nn.Module):
         # pick which action to run
         x[:,:4] = F.softmax(x[:,:4], dim=1)
 
-        # normalize add point outputs
-        x[:,4:6] = x[:,4:6]
-
-        # normalize remove point outputs
-        x[:,6:8] = x[:,6:8]
+        # # normalize add point outputs
+        # x[:,4:6] = self.normalizer(x[:,4:6])
+        #
+        # # normalize remove point outputs
+        # x[:,6:8] = self.normalizer(x[:,6:8])
 
         return x
 

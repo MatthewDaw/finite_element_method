@@ -5,32 +5,22 @@ import yaml
 import torch
 
 from mesh_generation.mesh_dqn.pydantic_objects import OptimizerConfig, AgentParamsConfig, FlowConfig, EpsilonConfig, \
-    FlowParamsConfig, SolverParamsConfig, GeometryParamsConfig, GeometryGeneratorParams
+    FlowParamsConfig, SolverParamsConfig, GeometryParamsConfig, GeometryGeneratorParams, CorrectPositioningPreTraining
 
 
-def load_config(restart: bool) -> FlowConfig:
+def load_config(restart: bool, prefix: str) -> FlowConfig:
     # Load config
-    PREFIX = 'ys930_results_'
-    save_dir = 'training_results/' + PREFIX[:-1]
+    prefix += "_"
+    save_dir = 'training_results/' + prefix[:-1]
     RESTART_NUM = 0
 
-    if restart:
-        print(f"./{save_dir}/config.yaml")
-        with open(f"./{save_dir}/config.yaml", 'r') as stream:
-            flow_config = yaml.safe_load(stream)
-        for f in os.listdir(save_dir):
-            RESTART_NUM += int(f"{PREFIX}actor_policy_net_1.pt" in f)
-        print(f"\n\nrestart NUM: {RESTART_NUM}\n\n")
-    else:
-        with open(f"./configs/ray_{PREFIX.split('_')[0]}.yaml", 'r') as stream:
-            flow_config = yaml.safe_load(stream)
-
-    if not restart:
-        with open(f"{save_dir}/config.yaml", 'w') as fout:
-            yaml.dump(flow_config, fout)
+    print(f"./{save_dir}/config.yaml")
+    with open(f"./{save_dir}/config.yaml", 'r') as stream:
+        flow_config = yaml.safe_load(stream)
+    print(f"\n\nrestart NUM: {RESTART_NUM}\n\n")
 
     flow_config['agent_params']['plot_dir'] = save_dir
-    flow_config['agent_params']['prefix'] = PREFIX
+    flow_config['agent_params']['prefix'] = prefix
     flow_config['restart_num'] = RESTART_NUM
     flow_config['restart'] = restart
     flow_config['save_dir'] = save_dir
@@ -47,17 +37,16 @@ def load_config(restart: bool) -> FlowConfig:
     flow_config['device'] = device
 
     # Convert optimizer values to the correct types
-    flow_config['optimizer']['lr'] = float(flow_config['optimizer']['lr'])
+    flow_config['optimizer']['lr'] = 1e-4
     flow_config['optimizer']['weight_decay'] = float(flow_config['optimizer']['weight_decay'])
-    flow_config['optimizer']['batch_size'] = int(flow_config['optimizer']['batch_size'])
-    flow_config['optimizer']['batch_size'] = 32
+    flow_config['optimizer']['batch_size'] = 10
 
     # Convert agent_params values to the correct types
     flow_config['agent_params']['target_update'] = int(flow_config['agent_params']['target_update'])
     flow_config['agent_params']['num_workers'] = int(flow_config['agent_params']['num_workers'])
     flow_config['agent_params']['num_parallel'] = int(flow_config['agent_params']['num_parallel'])
 
-    flow_config['agent_params']['large_neg_reward'] = 0.6
+    # flow_config['agent_params']['large_neg_reward'] = 1
 
     # output dims:
     # 0: terminate
@@ -83,9 +72,16 @@ def load_config(restart: bool) -> FlowConfig:
 
     geometry_generator_params = GeometryGeneratorParams(
         min_triangles=1,
-        max_triangles=5,
-        course_h=0.15,
+        max_triangles=1,
+        course_h=0.1,
         fine_h=0.01
+    )
+
+    correct_position_training = CorrectPositioningPreTraining(
+        num_batches_to_train_for=10000,
+        batch_size=40,
+        max_reward_for_good_variance=0.3,
+        successes_needed_to_switch_to_next_policy = 20
     )
 
     # Use Pydantic to validate and create a FlowConfig object
@@ -100,5 +96,6 @@ def load_config(restart: bool) -> FlowConfig:
         flow_params=FlowParamsConfig(**flow_config['flow_config']['flow_params']),
         geometry_params=GeometryParamsConfig(**flow_config['flow_config']['geometry_params']),
         solver_params=SolverParamsConfig(**flow_config['flow_config']['solver_params']),
-        geom_generator_params=geometry_generator_params
+        geom_generator_params=geometry_generator_params,
+        correct_positioning_pre_training=correct_position_training
     )

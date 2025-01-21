@@ -1,35 +1,18 @@
-
-import random
-import numpy as np
+"""MeshGeneratorTrainer for mesh point placement algorithm."""
 
 import torch
-import os
-import sys
-import yaml
-#from ray import tune, air, train
-#from ray.air import session, Checkpoint
-from tqdm import tqdm
-import time
-from itertools import count
 import random
 import numpy as np
-from torch import optim
-from matplotlib import pyplot as plt
 from collections import namedtuple
-from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-import math
-from shapely.geometry import Polygon
-from gym import Env, spaces
 from torch import nn
-from mesh_generation.mesh_dqn.config import load_config
-from mesh_generation.mesh_dqn.parameter_server import ParameterServer
 from mesh_generation.mesh_dqn.pydantic_objects import Transition, BatchedTransition
 from mesh_generation.mesh_dqn.replay_memory import ReplayMemory
 from mesh_generation.mesh_dqn.data_handler import DataHandler
-from mesh_generation.mesh_dqn.DeepQEnvironSetup import DeepQEnvironSetup
 
 import warnings
+
+from mesh_generation.mesh_dqn.trainer_base import BaseTrainer
 
 # Suppress specific warnings by matching the message
 warnings.filterwarnings(
@@ -42,21 +25,17 @@ warnings.filterwarnings(
 )
 from scipy.sparse import SparseEfficiencyWarning
 
-random.seed(42)
-np.random.seed(42)
+# random.seed(42)
+# np.random.seed(42)
 
-class Trainer:
+class MeshGeneratorTrainer(BaseTrainer):
 
     def __init__(self):
+        super().__init__("mesh_generator")
         self.use_model_1 = True
-        self.config = load_config(restart=False)
-        self.transition = namedtuple('Transition',('state', 'action', 'next_state', 'reward'))
-        self.reply_memory = ReplayMemory(self.transition, 10000)
+        self.reply_memory = ReplayMemory(10000)
         self.criterion = nn.HuberLoss()
-        self.deep_q_environment_setup = DeepQEnvironSetup(self.config)
-        self.parameter_server = ParameterServer(self.config, self.deep_q_environment_setup)
         self.data_handler = DataHandler(self.config)
-
 
     def optimize_model(self):
         """Optimize the model."""
@@ -180,17 +159,10 @@ class Trainer:
                 self.use_model_1 = not(self.use_model_1)
 
             if (len(self.data_handler.ep_rewards) % 15 == 0):
-                np.save("./{}/{}shape_outlines.npy".format(self.config.save_dir, self.config.agent_params.prefix),
-                        np.array(self.data_handler.shape_parameters, dtype=object))
-                np.save("./{}/{}actions.npy".format(self.config.save_dir, self.config.agent_params.prefix),
-                        np.array(self.data_handler.all_actions, dtype=object))
-                np.save("./{}/{}rewards.npy".format(self.config.save_dir, self.config.agent_params.prefix),
-                        np.array(self.data_handler.all_rewards, dtype=object))
-                torch.save(self.parameter_server.actor_policy_net_1.state_dict(), "./{}/{}actor_policy_net_1.pt".format(self.config.save_dir, self.config.agent_params.prefix))
-                torch.save(self.parameter_server.actor_policy_net_2.state_dict(), "./{}/{}actor_policy_net_2.pt".format(self.config.save_dir, self.config.agent_params.prefix))
+                self.save_models()
 
 if __name__ == '__main__':
-    trainer = Trainer()
+    trainer = MeshGeneratorTrainer()
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",

@@ -5,6 +5,19 @@ from torch import optim
 import numpy as np
 
 from mesh_generation.mesh_dqn.pydantic_objects import FlowConfig
+from mesh_generation.simple_node_setter import PointGeneratorGCN
+
+
+class CustomLRScheduler:
+    def __init__(self, optimizer, decrement=1e-6, min_lr=0):
+        self.optimizer = optimizer
+        self.decrement = decrement
+        self.min_lr = min_lr
+
+    def step(self):
+        for param_group in self.optimizer.param_groups:
+            new_lr = max(param_group['lr'] - self.decrement, self.min_lr)
+            param_group['lr'] = new_lr
 
 
 class ParameterServer:
@@ -24,21 +37,25 @@ class ParameterServer:
         # 4 is coordinate of node to add or remove (normalized from 0 to 1)
         # 5 is y coordinate of node to add or remove (normalized from 0 to 1)
 
-
-        self.actor_policy_net_1 = NodeSettingNet(config.agent_params.output_dim_size, conv_width=128, topk=0.1).to(
+        self.actor_policy_net_1 = PointGeneratorGCN(13, 120, 8).to(
             self.config.device).float()
-        self.actor_policy_net_2 = NodeSettingNet(config.agent_params.output_dim_size, conv_width=128, topk=0.1).to(
+        self.actor_policy_net_2 = PointGeneratorGCN(13, 120, 8).to(
             self.config.device).float()
 
-        self.actor_policy_net_1.set_num_nodes(config.agent_params.NUM_INPUTS)
-        self.actor_policy_net_2.set_num_nodes(config.agent_params.NUM_INPUTS)
+        # self.actor_policy_net_1 = NodeSettingNet(config.agent_params.output_dim_size, conv_width=128, topk=0.1).to(
+        #     self.config.device).float()
+        # self.actor_policy_net_2 = NodeSettingNet(config.agent_params.output_dim_size, conv_width=128, topk=0.1).to(
+        #     self.config.device).float()
+
+        # self.actor_policy_net_1.set_num_nodes(config.agent_params.NUM_INPUTS)
+        # self.actor_policy_net_2.set_num_nodes(config.agent_params.NUM_INPUTS)
 
         self.critic_net_1 = CriticNet(config.agent_params.output_dim_size)
         self.critic_net_1.set_num_nodes(config.agent_params.NUM_INPUTS)
         self.critic_net_2 = CriticNet(config.agent_params.output_dim_size)
         self.critic_net_2.set_num_nodes(config.agent_params.NUM_INPUTS)
 
-        if config.restart:
+        if not config.restart:
             for i in range(config.restart_num-1):
                 self.PREFIX = "restart_" + self.PREFIX
             self.actor_policy_net_1.load_state_dict(torch.load(
@@ -51,12 +68,7 @@ class ParameterServer:
                                                           weight_decay=float(config.optimizer.weight_decay))
         self.optimizer = self.optimizer_fn(self.actor_policy_net_1.parameters())
         self.critic_optimizer = self.optimizer_fn(self.critic_net_1.parameters())
-        self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer,
-                                       milestones=[500000, 1000000, 1500000], gamma=0.1)
-        if config.restart:
-            for i in range(449129):
-                self.scheduler.step()
-
+        self.scheduler = CustomLRScheduler(self.optimizer, decrement=1e-6, min_lr=1e-5)
         self.num_grads = 0
         self.select = True
 
@@ -122,3 +134,5 @@ class ParameterServer:
                     "/Users/matthewdaw/Documents/fem/MeshDQN/{}/{}actor_policy_net_1.pt".format(self.save_dir, self.PREFIX))
         torch.save(self.actor_policy_net_2.state_dict(),
                     "/Users/matthewdaw/Documents/fem/MeshDQN/{}/{}actor_policy_net_2.pt".format(self.save_dir, self.PREFIX))
+
+

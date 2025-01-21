@@ -237,8 +237,6 @@ class FEMSimulator:
         # save figure to png with matplot lib savefig
         plt.savefig('sim_graphs/error_rate_drops/h_to_num_points.png')
 
-        print("think more here")
-
 
 # simulations/simulations/sim_graphs/error_rate_drops
 

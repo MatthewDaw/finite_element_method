@@ -17,6 +17,7 @@ agent_params:
   threshold: 0.001
   timesteps: 10000
   u: -1
+  large_neg_reward: 1.0
 epsilon:
   decay: 10000
   end: 0.01

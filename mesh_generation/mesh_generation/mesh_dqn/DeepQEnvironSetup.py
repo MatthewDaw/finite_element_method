@@ -18,6 +18,7 @@ import torch
 import copy
 from shapely.geometry import Point, Polygon
 from adaptmesh.solve import laplace
+from shapely.plotting import plot_polygon
 
 class DeepQEnvironSetup:
 
@@ -36,21 +37,21 @@ class DeepQEnvironSetup:
         self.starting_error = None
         self.terminated = False
         self.NEGATIVE_REWARD = -1.*self.config.agent_params.large_neg_reward
+        self.POSITIVE_REWARD = self.config.agent_params.large_neg_reward
         self.mesh_editor = MeshEditor()
         self.visuzlizer = Visualizer()
+        self.reset_num = 0
 
     def set_shape_transformation_parameters(self, shape_outline_parameters: ShapeOutlineParameters):
         min_x = np.min(shape_outline_parameters.x_points)
         min_y = np.min(shape_outline_parameters.y_points)
         width = np.max(shape_outline_parameters.x_points) - min_x
         height = np.max(shape_outline_parameters.y_points) - min_y
-        scale = width
-        if height > width:
-            scale = height
         self.shape_transformation_parameters = ShapeTransformationParameters(
             x_shift=-1*min_x,
             y_shift=-1*min_y,
-            scale=1/scale
+            x_scale=1/width,
+            y_scale=1/height,
         )
 
     def select_random_point_in_mesh(self):
@@ -62,24 +63,29 @@ class DeepQEnvironSetup:
             if self.shapely_polygon.contains(point):
                 return point
 
-
-    def perform_scaling(self, coordinates: np.ndarray):
+    def perform_scaling(self, coordinates: np.ndarray, special_transformation_parameters=None):
         """Perform scaling on the coordinates."""
-        coordinates[:,0] += self.shape_transformation_parameters.x_shift
-        coordinates[:,1] += self.shape_transformation_parameters.y_shift
-        coordinates[:, :2] *= self.shape_transformation_parameters.scale
+        if special_transformation_parameters is None:
+            special_transformation_parameters = self.shape_transformation_parameters
+        coordinates[:,0] += special_transformation_parameters.x_shift
+        coordinates[:,1] += special_transformation_parameters.y_shift
+        coordinates[:, 0] *= special_transformation_parameters.x_scale
+        coordinates[:, 1] *= special_transformation_parameters.y_scale
         return coordinates
 
-    def undo_scaling(self, coordinates: np.ndarray):
+    def undo_scaling(self, coordinates: np.ndarray, special_transformation_parameters=None):
         """Perform scaling on the coordinates."""
-        coordinates[:, :2] /= self.shape_transformation_parameters.scale
-        coordinates[:, 0] -=  self.shape_transformation_parameters.x_shift
-        coordinates[:, 1] -= self.shape_transformation_parameters.y_shift
+        if special_transformation_parameters is None:
+            special_transformation_parameters = self.shape_transformation_parameters
+        coordinates[:, 0] /= special_transformation_parameters.x_scale
+        coordinates[:, 1] /= special_transformation_parameters.y_scale
+        coordinates[:, 0] -=  special_transformation_parameters.x_shift
+        coordinates[:, 1] -= special_transformation_parameters.y_shift
         return coordinates
 
     def reset_shape(self):
         num_triangles = np.random.randint(self.config.geom_generator_params.min_triangles,
-                                          self.config.geom_generator_params.max_triangles)
+                                          self.config.geom_generator_params.max_triangles+1)
         self.course_problem_setup = self.simulator.generate_triangle_setup(num_triangles=num_triangles,
                                                                            h=self.config.geom_generator_params.course_h)
         self.fine_problem_setup = self.simulator.generate_triangle_setup_from_outline_parameters(
@@ -89,6 +95,7 @@ class DeepQEnvironSetup:
         shape_coords = list(zip(self.course_problem_setup.shape_parameters.x_points[0],
                                 self.course_problem_setup.shape_parameters.y_points[0]))
         self.shapely_polygon = Polygon(shape_coords)
+        self.expected_average_point_variance = self.calc_expected_average_point_variance()
 
     def reset(self):
         self.reset_shape()
@@ -97,6 +104,7 @@ class DeepQEnvironSetup:
         self.terminated = False
         self.error_history = [self.calculate_error()]
         self.starting_error = self.error_history[0]
+        self.reset_num += 1
 
 
     def get_state(self):
@@ -104,6 +112,7 @@ class DeepQEnvironSetup:
         p, t, e = self.course_problem_setup.p, self.course_problem_setup.t, self.course_problem_setup.e
         scaled_p = copy.deepcopy(p)
         scaled_p[:,:2] = self.perform_scaling(scaled_p[:, :2])
+
         # Create x (node features)
         x = []
         for i in range(scaled_p.shape[0]):
@@ -126,26 +135,26 @@ class DeepQEnvironSetup:
         def add_edge(p1, p2, edge_characteritics, is_boundary):
             """Add an edge to edge_index and edge_attr."""
             edge_index.append([p1, p2])
-            distance = np.linalg.norm(p[p1] - p[p2])
+            distance = np.linalg.norm(self.perform_scaling(np.array([p[p1]])) - self.perform_scaling(np.array([p[p2]])))
             edge_attr.append([distance, is_boundary, *list(edge_characteritics)])
 
         # Add edges from t (triangle edges)
         for i in range(t.shape[0]):
             p1, p2, p3, shape_type = t[i]
             pair = np.array([p1, p2])
-            indices = np.where((e[:,:2] == pair).all(axis=1) | (e[:,:2] == pair[::-1]).all(axis=1))[0]
+            # indices = np.where((e[:,:2] == pair).all(axis=1) | (e[:,:2] == pair[::-1]).all(axis=1))[0]
             extra_edge_attr = np.zeros(6)
-            if len(indices) > 0:
-                extra_edge_attr[0] = 1
-                extra_edge_attr[1:] = e[indices[0]][2:]
+            # if len(indices) > 0:
+            #     extra_edge_attr[0] = 1
+            #     extra_edge_attr[1:] = e[indices[0]][2:]
             add_edge(p1, p2, extra_edge_attr, is_boundary=0)
 
             pair = np.array([p2, p3])
-            indices = np.where((e[:, :2] == pair).all(axis=1) | (e[:, :2] == pair[::-1]).all(axis=1))[0]
+            # indices = np.where((e[:, :2] == pair).all(axis=1) | (e[:, :2] == pair[::-1]).all(axis=1))[0]
             extra_edge_attr = np.zeros(6)
-            if len(indices) > 0:
-                extra_edge_attr[0] = 1
-                extra_edge_attr[1:] = e[indices[0]][2:]
+            # if len(indices) > 0:
+            #     extra_edge_attr[0] = 1
+            #     extra_edge_attr[1:] = e[indices[0]][2:]
             add_edge(p2, p3, extra_edge_attr, is_boundary=0)
 
             pair = np.array([p3, p1])
@@ -158,6 +167,14 @@ class DeepQEnvironSetup:
 
         edge_index = np.array(edge_index).T  # Convert to a 2 x num_edges matrix
         edge_attr = np.array(edge_attr)
+
+        assert np.max(x[:,0]) <= 1.001
+        assert np.max(x[:, 0]) >= .99
+        assert np.min(x[:, 0]) == 0.0
+        assert np.max(x[:,1]) <= 1.001
+        assert np.max(x[:, 1]) >= .99
+        assert np.min(x[:, 1]) == 0.0
+
         return Data(x=torch.tensor(x), edge_index=torch.tensor(edge_index), edge_attr=torch.tensor(edge_attr)).to(self.config.device)
 
     def add_node(self, coordinates):
@@ -203,6 +220,83 @@ class DeepQEnvironSetup:
 
         return (np.exp(net_change_in_error) - 1) + change_in_points_for_run - time_punishment
 
+    def calculate_distance_loss_for_specific_point(self, point: Point, shapely_polygon: Polygon = None):
+        """Calculate the distance loss for a specific point."""
+        if shapely_polygon is None:
+            shapely_polygon = self.shapely_polygon
+        is_contained = shapely_polygon.contains(point)
+        if is_contained:
+            distance_to_edge = point.distance(shapely_polygon.exterior)
+            return torch.tensor(-0.4*distance_to_edge, requires_grad=True)
+        else:
+            distance = point.distance(shapely_polygon)
+            return torch.tensor(distance+0.1, requires_grad=True)
+
+    def run_visualization(self, points, shapely_polygons, scaling_parameters, point_to_add, point_to_remove, add_point_in_shape, point_to_add_loss, remove_point_in_shape, point_to_remove_loss):
+
+        pionts_of_interest = np.array(
+            [point_to_add.tolist()[0], point_to_remove.tolist()[0]])
+        self.visualize_debug_with_input(points,
+                                        shapely_polygons,
+                                        scaling_parameters,
+                                        pionts_of_interest
+                                        )
+
+        print(point_to_add, add_point_in_shape, point_to_add_loss)
+        print(point_to_remove, remove_point_in_shape, point_to_remove_loss)
+
+    def calc_simple_reward_for_correct_position(self, state_choice_output, scaling_parameters, shapely_polygons, points):
+        """Determine if output is in the shape."""
+        state_choice_output = state_choice_output.clone()
+        point_to_add = self.undo_scaling(state_choice_output[4:6].reshape(1, 2), scaling_parameters)
+        polygon_point = Point(point_to_add[0][0].item(), point_to_add[0][1].item())
+        point_to_add_loss = self.calculate_distance_loss_for_specific_point(polygon_point, shapely_polygons)
+        add_point_in_shape = point_to_add_loss <= 0
+        point_to_remove = self.undo_scaling(state_choice_output[6:8].reshape(1, 2), scaling_parameters)
+        polygon_point = Point(point_to_remove[0][0].item(), point_to_remove[0][1].item())
+        point_to_remove_loss = self.calculate_distance_loss_for_specific_point(polygon_point, shapely_polygons)
+        remove_point_in_shape = point_to_remove_loss <= 0
+        # self.run_visualization(points, shapely_polygons, scaling_parameters, point_to_add, point_to_remove, add_point_in_shape, point_to_add_loss, remove_point_in_shape, point_to_remove_loss)
+        return point_to_add_loss + point_to_remove_loss, add_point_in_shape, remove_point_in_shape
+
+    def run_bulk_visualizer(self, state_choice_outputs):
+        state_choice_outputs = state_choice_outputs.clone()
+        self.visuzlizer.show_points_and_their_values(self.course_problem_setup.p[:, :2], points_of_interest=self.undo_scaling(state_choice_outputs[:, 4:6].detach().numpy()))
+        self.visuzlizer.show_points_and_their_values(self.course_problem_setup.p[:, :2], points_of_interest=self.undo_scaling(state_choice_outputs[:, 6:8].detach().numpy()))
+
+    def calc_expected_average_point_variance(self):
+        """Calculate the max shape distribution."""
+
+        min_x = np.min(self.course_problem_setup.shape_parameters.x_points)
+        max_x = np.max(self.course_problem_setup.shape_parameters.x_points)
+
+        min_y = np.min(self.course_problem_setup.shape_parameters.y_points)
+        max_y = np.max(self.course_problem_setup.shape_parameters.y_points)
+
+        total_points = 20 * 20
+
+        x_breadth = max_x - min_x
+        y_breadth = max_y - min_y
+
+        x_factor = x_breadth / (x_breadth + y_breadth)
+        y_factor = y_breadth / (x_breadth + y_breadth)
+
+        estimated_area = x_factor * y_factor
+
+        scaling_need = total_points / estimated_area
+
+        x_factor = x_factor * np.sqrt(scaling_need)
+        y_factor = y_factor * np.sqrt(scaling_need)
+
+        x = np.linspace(min_x, max_x, int(x_factor))  # 5 points between 0 and 1 (inclusive)
+        y = np.linspace(min_y, max_y, int(y_factor))
+        # Create the grid
+        xx, yy = np.meshgrid(x, y)
+        # Stack the points
+        grid_points = np.column_stack((xx.ravel(), yy.ravel()))
+        mask = np.array([self.shapely_polygon.contains(Point(p)) for p in grid_points])
+        points_inside = grid_points[mask]
+        return self.calculate_point_variance(points_inside)
 
 
     def determine_early_stop(self, state_choice_output, terminate_episode, add_point, remove_point, add_and_remove):
@@ -309,3 +403,38 @@ class DeepQEnvironSetup:
             self.terminated = True
             return self.NEGATIVE_REWARD
         return self.calculate_reward()
+
+    def calculate_point_variance(self, points):
+        """Calculate the variance of the points."""
+        # tree = cKDTree(points)
+        # distances, _ = tree.query(points, k=2)
+        # variance_distance = np.var(distances[:, 1])
+        return points[:,0].var() + points[:,1].var()
+
+    def visualize_debug_with_input(self, state, polygon, scaling_parameters, pionts_of_interest=None):
+        self.visuzlizer.show_points_and_their_values(self.undo_scaling(state.x[:, :2], scaling_parameters),
+                                                     shapely_polygon=polygon, points_of_interest=pionts_of_interest)
+
+    def visualize_debug(self):
+        self.visuzlizer.show_points_and_their_values(self.course_problem_setup.p[:, :2], shapely_polygon=self.shapely_polygon)
+
+
+
+        self.visuzlizer.show_points_and_their_values(self.undo_scaling(self.perform_scaling(self.course_problem_setup.p[:, :2])),
+                                                     shapely_polygon=self.shapely_polygon)
+
+        state = self.get_state()
+
+        self.visuzlizer.show_points_and_their_values(self.undo_scaling(state.x[:, :2]),
+                                                     shapely_polygon=self.shapely_polygon)
+
+        # zero_zero_points = np.array([[0.0, 0.0], [1.0, 1.0]])
+        # transformed_points = self.undo_scaling(zero_zero_points)
+
+        # self.visuzlizer.show_points_and_their_values(self.course_problem_setup.p[:, :2], points_of_interest=transformed_points)
+        #
+        # self.visuzlizer.show_points_and_their_values(self.course_problem_setup.p[:, :2],
+        #                                              points_of_interest=np.array(list(self.shapely_polygon.boundary.coords)))
+
+
+

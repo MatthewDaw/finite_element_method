@@ -1,7 +1,10 @@
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Any
 from pydantic import BaseModel
 import torch
 from torch_geometric.data import Data
+from shapely.geometry import Point, Polygon
+from common.pydantic_models import ShapeOutlineParameters, ShapeTransformationParameters
+
 
 class OptimizerConfig(BaseModel):
     lr: float
@@ -68,6 +71,13 @@ class GeometryGeneratorParams(BaseModel):
     course_h: float
     fine_h: float
 
+class CorrectPositioningPreTraining(BaseModel):
+    num_batches_to_train_for: int
+    batch_size: int
+    max_reward_for_good_variance: float
+    successes_needed_to_switch_to_next_policy: int
+
+
 class FlowConfig(BaseModel):
     class Config:
         arbitrary_types_allowed = True
@@ -83,9 +93,7 @@ class FlowConfig(BaseModel):
     geometry_params: GeometryParamsConfig
     solver_params: SolverParamsConfig
     geom_generator_params: GeometryGeneratorParams
-
-# previous_state.to(self.config.device), detached_state_choice_output,
-#                                        state.to(self.config.device), reward.to(self.config.device)
+    correct_positioning_pre_training: CorrectPositioningPreTraining
 
 class Transition(BaseModel):
     class Config:
@@ -102,3 +110,23 @@ class BatchedTransition(BaseModel):
     state_choice_output: List[torch.Tensor]
     next_state: List[Union[Data, None]]
     reward: List[torch.Tensor]
+
+class NonRLTransition(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    state: Data
+    shape_parameters: ShapeOutlineParameters
+    shape_transformation_parameters: ShapeTransformationParameters
+    shaplely_polygon: Polygon
+    expected_average_point_variance: float
+    points: Any
+
+
+class BatchedNonRLTransition(BaseModel):
+    class Config:
+        arbitrary_types_allowed = True
+    state: List[Data]
+    shape_parameters: List[ShapeOutlineParameters]
+    shape_transformation_parameters: List[ShapeTransformationParameters]
+    shapely_polygon: List[Polygon]
+    expected_average_point_variance: List[float]

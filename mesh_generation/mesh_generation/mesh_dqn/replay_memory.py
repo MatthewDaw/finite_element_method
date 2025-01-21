@@ -1,17 +1,25 @@
 """Replays memory for DQN."""
 
 import random
+from typing import Union
+
+from mesh_generation.mesh_dqn.pydantic_objects import Transition, NonRLTransition
+
 
 class ReplayMemory:
     """Replays memory for DQN."""
 
-    def __init__(self, transition, capacity):
-        self.transition = transition
+    def __init__(self, capacity):
         self.capacity = capacity
         self.memory = []
         self.position = 0
 
-    def push(self, transition):
+    def clear(self):
+        """Clear memory."""
+        self.memory = []
+        self.position = 0
+
+    def push(self, transition: Union[Transition, NonRLTransition]):
         """Saves a transition."""
         if len(self.memory) < self.capacity:
             self.memory.append(None)

@@ -1,11 +1,12 @@
 """Class for visualizing meshes and solutions."""
 
 import matplotlib.pyplot as plt
+from shapely.plotting import plot_polygon
 
 class Visualizer:
     """Class for visualizing meshes and solutions."""
 
-    def show_points_and_their_values(self, points, u=None, points_of_interest=None):
+    def show_points_and_their_values(self, points, u=None, points_of_interest=None, shapely_polygon=None):
         """Show points."""
 
         plt.figure(figsize=(8, 6))
@@ -20,6 +21,9 @@ class Visualizer:
         if points_of_interest is not None:
             plt.scatter(points_of_interest[:, 0], points_of_interest[:, 1], color='black', s=150, marker='X',
                         label="Points of Interest")
+
+        if shapely_polygon is not None:
+            plot_polygon(shapely_polygon)
 
         # Add labels and title
         plt.xlabel('X-coordinate')

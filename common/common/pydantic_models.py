@@ -91,4 +91,5 @@ class FullProblemSetup(BaseFEMParameters):
 class ShapeTransformationParameters(BaseFEMParameters):
     x_shift: float
     y_shift: float
-    scale: float
+    x_scale: float
+    y_scale: float

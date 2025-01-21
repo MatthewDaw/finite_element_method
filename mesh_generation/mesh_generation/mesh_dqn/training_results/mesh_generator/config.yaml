@@ -1,0 +1,40 @@
+agent_params:
+  N_closest: 180
+  do_nothing: true
+  episodes: 1000000
+  expected_avg_improvement: 0.005
+  goal_vertices: 0.95
+  gt_drag: -1
+  gt_time: -1
+  num_parallel: 8
+  num_workers: 1
+  p: -1
+  plot_dir: ''
+  save_steps: 1000
+  smoothing: true
+  solver_steps: 5000
+  target_update: 50
+  threshold: 0.001
+  timesteps: 10000
+  u: -1
+  large_neg_reward: 0.6
+epsilon:
+  decay: 10000
+  end: 0.01
+  gamma: 1.0
+  start: 1.0
+flow_config:
+  flow_params:
+    inflow: constant
+    mu: 1E-3
+    rho: 1.0
+  geometry_params:
+    mesh: /Users/matthewdaw/Documents/fem/MeshDQN/xdmf_files/ys930_0.15000_triangle.xdmf
+  solver_params:
+    dt: 0.001
+    smooth: true
+    solver_type: lu
+optimizer:
+  batch_size: 32
+  lr: 1e-5
+  weight_decay: 1e-6
